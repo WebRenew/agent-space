@@ -43,8 +43,6 @@ function makeParticles(type: CelebrationType): Particle[] {
   }));
 }
 
-const dummy = new Object3D();
-
 interface CelebrationEffectProps {
   type: CelebrationType;
   startedAt: number;
@@ -57,7 +55,8 @@ export function CelebrationEffect({
   position,
 }: CelebrationEffectProps) {
   const meshRef = useRef<InstancedMesh>(null);
-  const particles = useMemo(() => makeParticles(type), [type]);
+  const dummy = useMemo(() => new Object3D(), []);
+  const particles = useMemo(() => makeParticles(type), [type, startedAt]);
 
   useFrame(() => {
     if (!meshRef.current) return;
