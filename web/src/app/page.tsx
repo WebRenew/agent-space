@@ -2,11 +2,10 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { DialogPanel } from "@/components/ui/DialogPanel";
 import { HUD } from "@/components/ui/HUD";
-import { IntroOverlay } from "@/components/ui/IntroOverlay";
 import { FallbackPage } from "@/components/ui/FallbackPage";
 import { ContentSection } from "@/components/seo/ContentSection";
+import { useSimulation } from "@/hooks/useSimulation";
 
 const Scene = dynamic(
   () => import("@/components/canvas/Scene").then((m) => m.Scene),
@@ -32,6 +31,7 @@ function useWebGLSupport() {
 
 export default function HomePage() {
   const webgl = useWebGLSupport();
+  useSimulation();
 
   // Loading state
   if (webgl === null) {
@@ -59,8 +59,6 @@ export default function HomePage() {
 
       {/* 2D Overlays */}
       <HUD />
-      <IntroOverlay />
-      <DialogPanel />
 
       {/* SEO Content Below Canvas */}
       <ContentSection />

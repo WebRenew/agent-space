@@ -1,12 +1,25 @@
 "use client";
 
-import { npcs } from "@/data/npcs";
+import { useDemoStore } from "@/stores/useDemoStore";
+import { AgentCharacter } from "./AgentCharacter";
 
 const WALL_COLOR = "#E8E0D8";
 const FLOOR_COLOR = "#D4A574";
 const DESK_COLOR = "#8B6914";
 const MONITOR_COLOR = "#1A1A2E";
 const MONITOR_SCREEN = "#22C55E";
+
+/** Desk positions/rotations for up to 4 agents in a 2x2 layout */
+const DESK_LAYOUT: Array<{
+  position: [number, number, number];
+  rotation: [number, number, number];
+  facing: [number, number, number];
+}> = [
+  { position: [-3, 0, -4], rotation: [0, Math.PI, 0], facing: [-3, 0, -4.8] },
+  { position: [3, 0, -4], rotation: [0, Math.PI, 0], facing: [3, 0, -4.8] },
+  { position: [-3, 0, -8], rotation: [0, Math.PI, 0], facing: [-3, 0, -8.8] },
+  { position: [3, 0, -8], rotation: [0, Math.PI, 0], facing: [3, 0, -8.8] },
+];
 
 function Desk({
   position,
@@ -237,8 +250,28 @@ function Plant({
 }
 
 export function Office() {
+  const agents = useDemoStore((s) => s.agents);
+
   return (
     <group>
+      {/* Lighting */}
+      <ambientLight intensity={0.4} />
+      <directionalLight
+        position={[5, 8, 5]}
+        intensity={1.2}
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-near={0.5}
+        shadow-camera-far={50}
+        shadow-camera-left={-15}
+        shadow-camera-right={15}
+        shadow-camera-top={15}
+        shadow-camera-bottom={-15}
+      />
+      <pointLight position={[-4, 3, -4]} intensity={0.3} color="#FFE4B5" />
+      <pointLight position={[4, 3, -9]} intensity={0.3} color="#FFE4B5" />
+
       {/* Floor */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -5]} receiveShadow>
         <planeGeometry args={[22, 18]} />
@@ -292,29 +325,32 @@ export function Office() {
         </mesh>
       ))}
 
-      {/* Desks at NPC positions */}
-      {npcs.map((npc) => (
-        <Desk
-          key={npc.id}
-          position={[
-            npc.position[0],
-            0,
-            npc.position[2] - 0.8,
-          ]}
-          rotation={[0, npc.rotation[1], 0]}
-        />
-      ))}
+      {/* Agent desks + characters */}
+      {agents.map((agent) => {
+        const layout = DESK_LAYOUT[agent.deskIndex];
+        if (!layout) return null;
+        return (
+          <group key={agent.id}>
+            <Desk position={layout.position} rotation={layout.rotation} />
+            <AgentCharacter
+              agent={agent}
+              position={layout.facing}
+              rotation={layout.rotation}
+            />
+          </group>
+        );
+      })}
 
-      {/* Monitor wall near Watcher */}
+      {/* Monitor wall */}
       <MonitorWall position={[10.8, 0, -3]} />
 
-      {/* Task board near Dispatcher */}
+      {/* Task board */}
       <TaskBoard position={[0, 1.8, -13.85]} />
 
-      {/* Bookshelf near Librarian */}
+      {/* Bookshelf */}
       <Bookshelf position={[-6, 1.1, -13.7]} />
 
-      {/* Coffee station near Messenger */}
+      {/* Coffee station */}
       <CoffeeStation position={[6, 0, -12]} />
 
       {/* Server rack */}
@@ -326,13 +362,12 @@ export function Office() {
       <Plant position={[-10, 0, 3]} />
       <Plant position={[10, 0, 3]} />
 
-      {/* Whiteboard near Architect */}
+      {/* Whiteboard */}
       <group position={[2, 1.5, -13.85]}>
         <mesh>
           <boxGeometry args={[2.5, 1.5, 0.05]} />
           <meshStandardMaterial color="white" />
         </mesh>
-        {/* Marker doodles */}
         <mesh position={[-0.3, 0.2, 0.03]}>
           <boxGeometry args={[0.8, 0.02, 0.01]} />
           <meshStandardMaterial color="#4ECDC4" />
