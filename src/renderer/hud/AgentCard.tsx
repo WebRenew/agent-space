@@ -1,5 +1,6 @@
 import { useAgentStore } from '../store/agents'
 import { AGENT_COLORS, STATUS_LABELS } from '../types'
+import { calculateCost } from '../lib/costEngine'
 
 export function AgentCard() {
   const selectedId = useAgentStore((s) => s.selectedAgentId)
@@ -57,6 +58,13 @@ export function AgentCard() {
         <Row label="Tokens Out" value={agent.tokens_output.toLocaleString()} />
         <Row label="Files Modified" value={String(agent.files_modified)} />
         <Row label="Uptime" value={uptimeStr} />
+        <Row
+          label="Est. Cost"
+          value={`$${Object.entries(agent.sessionStats?.tokensByModel ?? {}).reduce(
+            (sum, [model, t]) => sum + calculateCost(model, t.input, t.output),
+            0
+          ).toFixed(4)}`}
+        />
       </div>
     </div>
   )

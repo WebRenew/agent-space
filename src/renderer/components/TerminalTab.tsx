@@ -46,12 +46,23 @@ export function TerminalTab({ terminalId, isActive }: TerminalTabProps) {
   const detectorRef = useRef(new ClaudeDetector())
   const cleanupRef = useRef<(() => void) | null>(null)
 
+  const fileModTimestamps = useRef<number[]>([])
+  const snapshotIntervalsRef = useRef(new Map<string, ReturnType<typeof setInterval>>())
+
   const updateAgent = useAgentStore((s) => s.updateAgent)
   const addAgent = useAgentStore((s) => s.addAgent)
   const removeAgent = useAgentStore((s) => s.removeAgent)
   const updateTerminal = useAgentStore((s) => s.updateTerminal)
   const getNextDeskIndex = useAgentStore((s) => s.getNextDeskIndex)
   const addToast = useAgentStore((s) => s.addToast)
+  const addEvent = useAgentStore((s) => s.addEvent)
+
+  const clearCelebration = (agentId: string) => {
+    useAgentStore.getState().updateAgent(agentId, {
+      activeCelebration: null,
+      celebrationStartedAt: null
+    })
+  }
 
   useEffect(() => {
     const container = containerRef.current
@@ -100,38 +111,110 @@ export function TerminalTab({ terminalId, isActive }: TerminalTabProps) {
         const update = detectorRef.current.feed(data)
         if (update) {
           const agentUpdates: Record<string, unknown> = {}
-          if (update.status) agentUpdates.status = update.status
+          const agentId = currentAgent.id
+          const evtBase = { agentId, agentName: currentAgent.name }
+
+          // Status change
+          if (update.status) {
+            agentUpdates.status = update.status
+            if (update.status !== currentAgent.status) {
+              addEvent({ ...evtBase, type: 'status_change', description: `${currentAgent.status} → ${update.status}` })
+            }
+          }
           if (update.currentTask) agentUpdates.currentTask = update.currentTask
           if (update.model) agentUpdates.model = update.model
 
           // Token counts (CLI reports cumulative totals — set directly)
-          if (update.tokensInput != null) agentUpdates.tokens_input = update.tokensInput
-          if (update.tokensOutput != null) agentUpdates.tokens_output = update.tokensOutput
+          if (update.tokensInput != null && update.tokensOutput != null) {
+            agentUpdates.tokens_input = update.tokensInput
+            agentUpdates.tokens_output = update.tokensOutput
 
-          // File modification (increment counter)
-          if (update.fileModified) {
-            agentUpdates.files_modified = currentAgent.files_modified + 1
+            // Track per-model if model is known
+            const model = update.model || currentAgent.model
+            if (model) {
+              useAgentStore.getState().recordModelTokens(
+                currentAgent.id,
+                model,
+                update.tokensInput,
+                update.tokensOutput
+              )
+            }
           }
 
-          // Git commit detected → trigger celebration
+          // Tool call event
+          if (update.status === 'tool_calling' && update.currentTask) {
+            addEvent({ ...evtBase, type: 'tool_call', description: update.currentTask })
+          }
+
+          // File modification (increment counter + sparkles on rapid saves)
+          if (update.fileModified) {
+            agentUpdates.files_modified = currentAgent.files_modified + 1
+            addEvent({ ...evtBase, type: 'file_write', description: `Modified ${update.fileModified}` })
+
+            // Rapid file saves → sparkles
+            fileModTimestamps.current.push(Date.now())
+            fileModTimestamps.current = fileModTimestamps.current.filter(t => Date.now() - t < 5000)
+            if (fileModTimestamps.current.length >= 3) {
+              agentUpdates.activeCelebration = 'sparkles' as const
+              agentUpdates.celebrationStartedAt = Date.now()
+              fileModTimestamps.current = []
+              setTimeout(() => clearCelebration(agentId), 2500)
+            }
+          }
+
+          // Git commit detected → confetti
           if (update.commitDetected) {
             const newCount = currentAgent.commitCount + 1
             agentUpdates.commitCount = newCount
             agentUpdates.activeCelebration = 'confetti' as const
             agentUpdates.celebrationStartedAt = Date.now()
             addToast({ message: `${currentAgent.name} committed!`, type: 'success' })
-
-            // Auto-clear celebration after 4 seconds
-            const agentId = currentAgent.id
-            setTimeout(() => {
-              useAgentStore.getState().updateAgent(agentId, {
-                activeCelebration: null,
-                celebrationStartedAt: null
-              })
-            }, 4000)
+            addEvent({ ...evtBase, type: 'commit', description: 'Committed changes' })
+            setTimeout(() => clearCelebration(agentId), 4000)
           }
 
-          updateAgent(currentAgent.id, agentUpdates)
+          // Git push → rocket
+          if (update.pushDetected) {
+            agentUpdates.activeCelebration = 'rocket' as const
+            agentUpdates.celebrationStartedAt = Date.now()
+            addToast({ message: `${currentAgent.name} pushed!`, type: 'success' })
+            addEvent({ ...evtBase, type: 'push', description: 'Pushed to remote' })
+            setTimeout(() => clearCelebration(agentId), 3000)
+          }
+
+          // Test/build fail → explosion
+          if (update.testFailed || update.buildFailed) {
+            agentUpdates.activeCelebration = 'explosion' as const
+            agentUpdates.celebrationStartedAt = Date.now()
+            const msg = update.testFailed ? 'tests failed' : 'build failed'
+            addToast({ message: `${currentAgent.name} ${msg}!`, type: 'error' })
+            addEvent({ ...evtBase, type: update.testFailed ? 'test_fail' : 'build_fail', description: msg.charAt(0).toUpperCase() + msg.slice(1) })
+            setTimeout(() => clearCelebration(agentId), 2000)
+          }
+
+          // Test/build pass → toast only
+          if (update.testPassed) {
+            addToast({ message: `${currentAgent.name} tests passed!`, type: 'success' })
+            addEvent({ ...evtBase, type: 'test_pass', description: 'Tests passed' })
+          }
+          if (update.buildSucceeded) {
+            addToast({ message: `${currentAgent.name} build succeeded!`, type: 'success' })
+            addEvent({ ...evtBase, type: 'build_pass', description: 'Build succeeded' })
+          }
+
+          // Agent done → trophy
+          if (update.status === 'done' && currentAgent.status !== 'done') {
+            agentUpdates.activeCelebration = 'trophy' as const
+            agentUpdates.celebrationStartedAt = Date.now()
+            setTimeout(() => clearCelebration(agentId), 3000)
+          }
+
+          // Error event
+          if (update.status === 'error' && currentAgent.status !== 'error') {
+            addEvent({ ...evtBase, type: 'error', description: update.currentTask || 'Error detected' })
+          }
+
+          updateAgent(agentId, agentUpdates)
         }
       }
     })
@@ -167,19 +250,42 @@ export function TerminalTab({ terminalId, isActive }: TerminalTabProps) {
           appearance: randomAppearance(),
           commitCount: 0,
           activeCelebration: null,
-          celebrationStartedAt: null
+          celebrationStartedAt: null,
+          sessionStats: {
+            tokenHistory: [],
+            peakInputRate: 0,
+            peakOutputRate: 0,
+            tokensByModel: {},
+          }
         }
         addAgent(agent)
         addToast({ message: `${agent.name} sat down`, type: 'info' })
+        addEvent({ agentId: agent.id, agentName: agent.name, type: 'spawn', description: 'Started working' })
+
+        // Start periodic token snapshots
+        const snapshotInterval = setInterval(() => {
+          const cur = useAgentStore.getState().agents.find((a) => a.terminalId === terminalId)
+          if (cur) {
+            useAgentStore.getState().recordTokenSnapshot(cur.id)
+          }
+        }, 10_000)
+        snapshotIntervalsRef.current.set(terminalId, snapshotInterval)
       } else if (isRunning && existingAgent) {
         // Claude restarted in same terminal
         updateAgent(existingAgent.id, {
           isClaudeRunning: true,
           status: 'thinking'
         })
+        addEvent({ agentId: existingAgent.id, agentName: existingAgent.name, type: 'spawn', description: 'Restarted' })
       } else if (!isRunning && existingAgent) {
         // Claude exited → remove agent
         addToast({ message: `${existingAgent.name} left`, type: 'info' })
+        addEvent({ agentId: existingAgent.id, agentName: existingAgent.name, type: 'exit', description: 'Finished working' })
+        const interval = snapshotIntervalsRef.current.get(terminalId)
+        if (interval) {
+          clearInterval(interval)
+          snapshotIntervalsRef.current.delete(terminalId)
+        }
         removeAgent(terminalId)
         detectorRef.current.reset()
       }
@@ -203,12 +309,18 @@ export function TerminalTab({ terminalId, isActive }: TerminalTabProps) {
       unsubClaude()
       observer.disconnect()
       term.dispose()
+      // Clear snapshot intervals to prevent memory leak
+      const interval = snapshotIntervalsRef.current.get(terminalId)
+      if (interval) {
+        clearInterval(interval)
+        snapshotIntervalsRef.current.delete(terminalId)
+      }
     }
 
     return () => {
       cleanupRef.current?.()
     }
-  }, [terminalId, updateAgent, addAgent, removeAgent, updateTerminal, getNextDeskIndex, addToast])
+  }, [terminalId, updateAgent, addAgent, removeAgent, updateTerminal, getNextDeskIndex, addToast, addEvent])
 
   // Re-fit when tab becomes active
   useEffect(() => {

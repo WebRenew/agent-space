@@ -1,10 +1,14 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAgentStore } from '../store/agents'
 import { TerminalTab } from './TerminalTab'
+import { EventLog } from './EventLog'
+import { ObservabilityPanel } from './ObservabilityPanel'
 
 const MIN_HEIGHT = 120
 const DEFAULT_HEIGHT = 300
 const MAX_HEIGHT_RATIO = 0.7
+
+type PanelView = 'terminal' | 'events' | 'observability'
 
 let terminalCounter = 0
 
@@ -15,11 +19,25 @@ export function TerminalPanel() {
   const addTerminal = useAgentStore((s) => s.addTerminal)
   const removeTerminal = useAgentStore((s) => s.removeTerminal)
   const removeAgent = useAgentStore((s) => s.removeAgent)
+  const eventCount = useAgentStore((s) => s.events.length)
 
   const [panelHeight, setPanelHeight] = useState(DEFAULT_HEIGHT)
+  const [activeView, setActiveView] = useState<PanelView>('terminal')
   const isDragging = useRef(false)
   const dragStartY = useRef(0)
   const dragStartHeight = useRef(0)
+
+  // Cmd+Shift+O toggles observability
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'o') {
+        e.preventDefault()
+        setActiveView((v) => (v === 'observability' ? 'terminal' : 'observability'))
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   const handleCreateTerminal = useCallback(async () => {
     try {
@@ -31,6 +49,8 @@ export function TerminalPanel() {
         label: `Terminal ${terminalCounter}`,
         isClaudeRunning: false
       })
+
+      setActiveView('terminal')
 
       // Clean up on process exit
       const unsub = window.electronAPI.terminal.onExit((exitId) => {
@@ -53,6 +73,14 @@ export function TerminalPanel() {
       removeTerminal(terminalId)
     },
     [removeTerminal, removeAgent]
+  )
+
+  const handleSelectTerminal = useCallback(
+    (id: string) => {
+      setActiveTerminal(id)
+      setActiveView('terminal')
+    },
+    [setActiveTerminal]
   )
 
   // Drag handle for resizing
@@ -96,12 +124,48 @@ export function TerminalPanel() {
 
       {/* Tab bar */}
       <div className="flex items-center h-8 bg-[#12122a] border-b border-[#2a2a4a] px-1 gap-0.5 shrink-0">
+        {/* Events tab */}
+        <button
+          onClick={() => setActiveView('events')}
+          className={`flex items-center gap-1.5 px-3 h-7 rounded-t text-xs font-medium transition-colors ${
+            activeView === 'events'
+              ? 'bg-[#16162a] text-white'
+              : 'text-gray-400 hover:text-gray-200 hover:bg-[#1a1a3a]'
+          }`}
+        >
+          <span className="w-2 h-2 rounded-full shrink-0 bg-purple-400" />
+          <span>Events</span>
+          {eventCount > 0 && (
+            <span className="ml-1 text-[10px] bg-purple-500/20 text-purple-300 px-1.5 rounded-full">
+              {eventCount > 99 ? '99+' : eventCount}
+            </span>
+          )}
+        </button>
+
+        {/* Observability tab */}
+        <button
+          onClick={() => setActiveView('observability')}
+          className={`flex items-center gap-1.5 px-3 h-7 rounded-t text-xs font-medium transition-colors ${
+            activeView === 'observability'
+              ? 'bg-[#16162a] text-white'
+              : 'text-gray-400 hover:text-gray-200 hover:bg-[#1a1a3a]'
+          }`}
+          title="Cmd+Shift+O"
+        >
+          <span className="w-2 h-2 rounded-full shrink-0 bg-amber-400" />
+          <span>Tokens</span>
+        </button>
+
+        {/* Separator */}
+        <div className="w-px h-4 bg-[#2a2a4a] mx-0.5" />
+
+        {/* Terminal tabs */}
         {terminals.map((term) => (
           <button
             key={term.id}
-            onClick={() => setActiveTerminal(term.id)}
+            onClick={() => handleSelectTerminal(term.id)}
             className={`flex items-center gap-1.5 px-3 h-7 rounded-t text-xs font-medium transition-colors ${
-              activeTerminalId === term.id
+              activeView === 'terminal' && activeTerminalId === term.id
                 ? 'bg-[#16162a] text-white'
                 : 'text-gray-400 hover:text-gray-200 hover:bg-[#1a1a3a]'
             }`}
@@ -132,9 +196,13 @@ export function TerminalPanel() {
         </button>
       </div>
 
-      {/* Terminal content area */}
+      {/* Content area */}
       <div className="flex-1 relative overflow-hidden">
-        {terminals.length === 0 ? (
+        {activeView === 'events' ? (
+          <EventLog />
+        ) : activeView === 'observability' ? (
+          <ObservabilityPanel />
+        ) : terminals.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500 text-sm">
             Click <span className="text-green-400 mx-1 font-bold">+</span> to open a terminal
           </div>
@@ -143,7 +211,7 @@ export function TerminalPanel() {
             <TerminalTab
               key={term.id}
               terminalId={term.id}
-              isActive={activeTerminalId === term.id}
+              isActive={activeView === 'terminal' && activeTerminalId === term.id}
             />
           ))
         )}

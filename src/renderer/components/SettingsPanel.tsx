@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSettingsStore, saveSettings } from '../store/settings'
-import type { AppSettings, CursorStyle } from '../types'
-import { DEFAULT_SETTINGS } from '../types'
+import type { AppSettings, CursorStyle, SubscriptionType } from '../types'
+import { DEFAULT_SETTINGS, SUBSCRIPTION_OPTIONS } from '../types'
 
-type Tab = 'general' | 'appearance' | 'terminal'
+type Tab = 'general' | 'appearance' | 'terminal' | 'subscription'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'appearance', label: 'Appearance' },
-  { id: 'terminal', label: 'Terminal' }
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'subscription', label: 'Plan' }
 ]
 
 const FONT_OPTIONS = [
@@ -369,6 +370,39 @@ export function SettingsPanel() {
                     onChange={(v) => updateTerminal({ audibleBell: v })}
                   />
                 </Row>
+              </Section>
+            </>
+          )}
+
+          {activeTab === 'subscription' && (
+            <>
+              <Section title="Subscription Plan">
+                <div className="space-y-2 py-2">
+                  {(Object.entries(SUBSCRIPTION_OPTIONS) as [SubscriptionType, { label: string; monthlyCost: number }][]).map(([key, opt]) => (
+                    <label key={key} className="flex items-center gap-3 cursor-pointer py-1">
+                      <input
+                        type="radio"
+                        name="subscription"
+                        value={key}
+                        checked={draft.subscription.type === key}
+                        onChange={() =>
+                          setDraft((d) => ({
+                            ...d,
+                            subscription: { type: key, monthlyCost: opt.monthlyCost }
+                          }))
+                        }
+                        className="accent-emerald-400"
+                      />
+                      <span className="text-sm text-gray-300">{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </Section>
+              <Section title="About">
+                <div className="text-xs text-white/40 py-2 space-y-1">
+                  <p>Subscription plan affects cost display in StatsBar and Observability panel.</p>
+                  <p>Claude Max users see estimated savings instead of API costs.</p>
+                </div>
               </Section>
             </>
           )}

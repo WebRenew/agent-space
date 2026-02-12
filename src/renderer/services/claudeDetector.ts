@@ -8,9 +8,22 @@ export interface ClaudeUpdate {
   tokensOutput?: number
   fileModified?: string
   commitDetected?: boolean
+  pushDetected?: boolean
+  testPassed?: boolean
+  testFailed?: boolean
+  buildSucceeded?: boolean
+  buildFailed?: boolean
 }
 
 const BUFFER_MAX = 4000
+
+/** Strip all ANSI escape sequences (colors, cursor moves, etc.) */
+function stripAnsi(str: string): string {
+  return str.replace(
+    /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nq-uy=><~]/g,
+    ''
+  )
+}
 
 // Patterns to detect Claude CLI output states
 const PATTERNS = {
@@ -22,14 +35,24 @@ const PATTERNS = {
   model: /(?:claude-[\w.-]+|gpt-[\w.-]+)/,
   taskLine: /(?:>[→>]?\s*(.{5,80})$)/m,
   // Activity tracking patterns
-  tokens: /(\d[\d,]*)\s*input.*?(\d[\d,]*)\s*output/i,
-  tokensAlt: /Tokens:\s*(\d[\d,]*).*?(\d[\d,]*)/i,
+  tokens: /(\d[\d,.]*k?)\s*input.*?(\d[\d,.]*k?)\s*output/i,
+  tokensAlt: /input[:\s]+(\d[\d,.]*k?).*?output[:\s]+(\d[\d,.]*k?)/i,
+  tokensCost: /\$[\d.]+\s*[│|]\s*(\d[\d,.]*k?)\s*input\s*[│|]\s*(\d[\d,.]*k?)\s*output/i,
   fileModified: /(?:Wrote|Created|Updated|Edited)\s+.*?([^\s"']+\.\w+)/i,
-  commitSuccess: /\[(?:main|master|[\w/-]+)\s+[\da-f]{7,}\]/
+  commitSuccess: /\[(?:main|master|[\w/-]+)\s+[\da-f]{7,}\]/,
+  pushSuccess: /(?:To\s+(?:git@|https:\/\/)|->.*remote|pushed\s+to)/i,
+  testPass: /(?:Tests?\s+passed|PASS\s|✓\s*\d+\s*tests?|All\s+tests?\s+passed)/i,
+  testFail: /(?:Tests?\s+failed|FAIL\s|✗\s*\d+\s*tests?|failures?:\s*[1-9])/i,
+  buildSuccess: /(?:Build\s+succeeded|Successfully\s+compiled|built\s+in\s+\d)/i,
+  buildFail: /(?:Build\s+failed|Failed\s+to\s+compile|error\s+TS\d)/i
 } as const
 
 function parseTokenCount(raw: string): number {
-  return parseInt(raw.replace(/,/g, ''), 10) || 0
+  const cleaned = raw.replace(/,/g, '')
+  if (cleaned.endsWith('k') || cleaned.endsWith('K')) {
+    return Math.round(parseFloat(cleaned.slice(0, -1)) * 1000)
+  }
+  return parseInt(cleaned, 10) || 0
 }
 
 export class ClaudeDetector {
@@ -37,13 +60,16 @@ export class ClaudeDetector {
 
   /** Feed new terminal output into the detector */
   feed(data: string): ClaudeUpdate | null {
-    this.buffer += data
+    // Strip ANSI codes before buffering for pattern matching
+    const clean = stripAnsi(data)
+
+    this.buffer += clean
     if (this.buffer.length > BUFFER_MAX) {
       this.buffer = this.buffer.slice(-BUFFER_MAX)
     }
 
     // Check recent chunk for patterns (last ~500 chars is enough for per-frame detection)
-    const recent = data.length > 500 ? data.slice(-500) : data
+    const recent = clean.length > 500 ? clean.slice(-500) : clean
 
     const update: ClaudeUpdate = {}
     let hasUpdate = false
@@ -83,8 +109,14 @@ export class ClaudeDetector {
       }
     }
 
-    // Token usage detection (CLI reports cumulative totals)
-    const tokenMatch = recent.match(PATTERNS.tokens) || recent.match(PATTERNS.tokensAlt)
+    // Token usage detection — check recent first, then buffer as fallback
+    const tokenMatch =
+      recent.match(PATTERNS.tokens) ||
+      recent.match(PATTERNS.tokensAlt) ||
+      recent.match(PATTERNS.tokensCost) ||
+      this.buffer.match(PATTERNS.tokens) ||
+      this.buffer.match(PATTERNS.tokensAlt) ||
+      this.buffer.match(PATTERNS.tokensCost)
     if (tokenMatch) {
       update.tokensInput = parseTokenCount(tokenMatch[1])
       update.tokensOutput = parseTokenCount(tokenMatch[2])
@@ -101,6 +133,32 @@ export class ClaudeDetector {
     // Git commit detection
     if (PATTERNS.commitSuccess.test(recent)) {
       update.commitDetected = true
+      hasUpdate = true
+    }
+
+    // Git push detection
+    if (PATTERNS.pushSuccess.test(recent)) {
+      update.pushDetected = true
+      hasUpdate = true
+    }
+
+    // Test result detection
+    if (PATTERNS.testPass.test(recent)) {
+      update.testPassed = true
+      hasUpdate = true
+    }
+    if (PATTERNS.testFail.test(recent)) {
+      update.testFailed = true
+      hasUpdate = true
+    }
+
+    // Build result detection
+    if (PATTERNS.buildSuccess.test(recent)) {
+      update.buildSucceeded = true
+      hasUpdate = true
+    }
+    if (PATTERNS.buildFail.test(recent)) {
+      update.buildFailed = true
       hasUpdate = true
     }
 

@@ -7,6 +7,10 @@ import { ThoughtBubble } from './effects/ThoughtBubble'
 import { DeskFire } from './effects/DeskFire'
 import { Papers } from './effects/Papers'
 import { Confetti } from './effects/Confetti'
+import { Rocket } from './effects/Rocket'
+import { Sparkles } from './effects/Sparkles'
+import { Explosion } from './effects/Explosion'
+import { Trophy } from './effects/Trophy'
 import { OfficePlant } from './effects/OfficePlant'
 
 interface AgentCharacterProps {
@@ -332,10 +336,54 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
       {agent.status === 'error' && <DeskFire position={[position[0], position[1] + 0.8, position[2]]} />}
       {agent.status === 'streaming' && <Papers position={[position[0], position[1] + 0.9, position[2]]} />}
 
-      {/* Commit celebration confetti */}
+      {/* Celebration effects */}
       {agent.activeCelebration === 'confetti' && (
         <Confetti
           position={[charPos[0], charPos[1] + 1.8, charPos[2]]}
+          onComplete={() => {
+            useAgentStore.getState().updateAgent(agent.id, {
+              activeCelebration: null,
+              celebrationStartedAt: null
+            })
+          }}
+        />
+      )}
+      {agent.activeCelebration === 'rocket' && (
+        <Rocket
+          position={[charPos[0], charPos[1] + 1.5, charPos[2]]}
+          onComplete={() => {
+            useAgentStore.getState().updateAgent(agent.id, {
+              activeCelebration: null,
+              celebrationStartedAt: null
+            })
+          }}
+        />
+      )}
+      {agent.activeCelebration === 'sparkles' && (
+        <Sparkles
+          position={[charPos[0], charPos[1] + 1.6, charPos[2]]}
+          onComplete={() => {
+            useAgentStore.getState().updateAgent(agent.id, {
+              activeCelebration: null,
+              celebrationStartedAt: null
+            })
+          }}
+        />
+      )}
+      {agent.activeCelebration === 'explosion' && (
+        <Explosion
+          position={[charPos[0], charPos[1] + 1.5, charPos[2]]}
+          onComplete={() => {
+            useAgentStore.getState().updateAgent(agent.id, {
+              activeCelebration: null,
+              celebrationStartedAt: null
+            })
+          }}
+        />
+      )}
+      {agent.activeCelebration === 'trophy' && (
+        <Trophy
+          position={[charPos[0], charPos[1], charPos[2]]}
           onComplete={() => {
             useAgentStore.getState().updateAgent(agent.id, {
               activeCelebration: null,

@@ -9,7 +9,47 @@ export type AgentStatus =
 
 export type AgentType = 'cursor' | 'cli' | 'mcp' | 'copilot'
 
-export type CelebrationType = 'confetti'
+export type CelebrationType = 'confetti' | 'rocket' | 'sparkles' | 'explosion' | 'trophy'
+
+export type AgentEventType =
+  | 'spawn' | 'exit' | 'status_change' | 'file_write'
+  | 'tool_call' | 'commit' | 'push'
+  | 'test_pass' | 'test_fail' | 'build_pass' | 'build_fail' | 'error'
+
+export interface AgentEvent {
+  id: string
+  timestamp: number
+  agentId: string
+  agentName: string
+  type: AgentEventType
+  description: string
+}
+
+export interface TokenSnapshot {
+  timestamp: number
+  tokens_input: number
+  tokens_output: number
+}
+
+export interface SessionStats {
+  tokenHistory: TokenSnapshot[]
+  peakInputRate: number
+  peakOutputRate: number
+  tokensByModel: Record<string, { input: number; output: number }>
+}
+
+export type SubscriptionType = 'api' | 'max_5x' | 'max_20x'
+
+export interface SubscriptionConfig {
+  type: SubscriptionType
+  monthlyCost: number
+}
+
+export const SUBSCRIPTION_OPTIONS: Record<SubscriptionType, { label: string; monthlyCost: number }> = {
+  api: { label: 'API (Pay per token)', monthlyCost: 0 },
+  max_5x: { label: 'Claude Max 5x ($100/mo)', monthlyCost: 100 },
+  max_20x: { label: 'Claude Max 20x ($200/mo)', monthlyCost: 200 },
+}
 
 export type HairStyle = 'short' | 'long' | 'ponytail' | 'buzz' | 'mohawk'
 
@@ -35,6 +75,7 @@ export interface AppSettings {
     visualBell: boolean
     audibleBell: boolean
   }
+  subscription: SubscriptionConfig
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -56,6 +97,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     optionAsMeta: false,
     visualBell: false,
     audibleBell: false
+  },
+  subscription: {
+    type: 'api',
+    monthlyCost: 0
   }
 }
 
@@ -86,6 +131,7 @@ export interface Agent {
   commitCount: number
   activeCelebration: CelebrationType | null
   celebrationStartedAt: number | null
+  sessionStats: SessionStats
 }
 
 const SHIRT_COLORS = ['#4fa3f7', '#4ade80', '#a78bfa', '#fb923c', '#f87171', '#22d3ee', '#e879f9', '#facc15', '#34d399', '#f472b6']
