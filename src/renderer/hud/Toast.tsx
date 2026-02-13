@@ -6,12 +6,28 @@ export function ToastStack() {
   const removeToast = useAgentStore((s) => s.removeToast)
 
   return (
-    <div className="absolute right-4 bottom-4 flex flex-col gap-2 pointer-events-auto">
+    <div style={{ position: 'absolute', right: 16, bottom: 16, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'auto' }}>
       {toasts.map((toast) => (
         <ToastItem key={toast.id} id={toast.id} message={toast.message} type={toast.type} onRemove={removeToast} />
       ))}
     </div>
   )
+}
+
+function borderForType(type: 'info' | 'error' | 'success'): string {
+  switch (type) {
+    case 'error': return '1px solid rgba(196,80,80,0.4)'
+    case 'success': return '1px solid rgba(84,140,90,0.4)'
+    default: return '1px solid rgba(212,160,64,0.4)'
+  }
+}
+
+function iconColorForType(type: 'info' | 'error' | 'success'): string {
+  switch (type) {
+    case 'error': return '#c45050'
+    case 'success': return '#548C5A'
+    default: return '#d4a040'
+  }
 }
 
 function ToastItem({
@@ -30,19 +46,18 @@ function ToastItem({
     return () => clearTimeout(timer)
   }, [id, onRemove])
 
-  const borderColor =
-    type === 'error' ? 'border-red-500/40' : type === 'success' ? 'border-green-500/40' : 'border-blue-500/40'
-  const iconColor =
-    type === 'error' ? 'text-red-400' : type === 'success' ? 'text-green-400' : 'text-blue-400'
-
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-2 bg-black/80 backdrop-blur-md rounded-lg border ${borderColor} text-white text-sm min-w-[240px] animate-in`}
+      className="glass-panel animate-in"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px',
+        borderRadius: 8, border: borderForType(type), fontSize: 13, minWidth: 240,
+      }}
     >
-      <span className={`text-xs ${iconColor}`}>
+      <span style={{ fontSize: 12, color: iconColorForType(type) }}>
         {type === 'error' ? '!' : type === 'success' ? '+' : '>'}
       </span>
-      <span className="text-white/90">{message}</span>
+      <span style={{ color: '#9A9692' }}>{message}</span>
     </div>
   )
 }

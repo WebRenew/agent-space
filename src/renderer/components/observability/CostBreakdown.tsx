@@ -8,7 +8,7 @@ export function CostBreakdown({ tokensByModel }: Props) {
   const entries = Object.entries(tokensByModel)
   if (entries.length === 0) {
     return (
-      <div className="bg-white/5 rounded-lg p-4 border border-white/10 text-white/30 text-sm">
+      <div className="glass-panel" style={{ borderRadius: 6, padding: 14, color: '#595653', fontSize: 13 }}>
         No token data yet
       </div>
     )
@@ -22,19 +22,21 @@ export function CostBreakdown({ tokensByModel }: Props) {
   })
 
   return (
-    <div className="bg-white/5 rounded-lg p-4 border border-white/10">
-      <div className="text-xs text-white/40 uppercase tracking-wider mb-3">Cost Breakdown</div>
-      <div className="space-y-2">
+    <div className="glass-panel" style={{ borderRadius: 6, padding: 14 }}>
+      <div style={{ fontSize: 10, color: '#74747C', fontWeight: 600, letterSpacing: 1, marginBottom: 10 }}>
+        COST BREAKDOWN
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {rows.map((row) => (
-          <div key={row.model} className="flex justify-between text-sm">
-            <span className="text-white/60 font-mono text-xs">{shortModelName(row.model)}</span>
-            <span className="text-[#fbbf24] font-mono">${row.cost.toFixed(4)}</span>
+          <div key={row.model} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+            <span style={{ color: '#74747C', fontFamily: 'inherit', fontSize: 12 }}>{shortModelName(row.model)}</span>
+            <span style={{ color: '#d4a040', fontFamily: 'inherit' }}>${row.cost.toFixed(4)}</span>
           </div>
         ))}
       </div>
-      <div className="mt-3 pt-3 border-t border-white/10 flex justify-between">
-        <span className="text-white/50 text-sm">Total</span>
-        <span className="text-[#fbbf24] font-mono font-semibold">${totalCost.toFixed(4)}</span>
+      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(89,86,83,0.2)', display: 'flex', justifyContent: 'space-between' }}>
+        <span style={{ color: '#74747C', fontSize: 13 }}>Total</span>
+        <span className="glow-amber" style={{ color: '#d4a040', fontFamily: 'inherit', fontWeight: 600 }}>${totalCost.toFixed(4)}</span>
       </div>
     </div>
   )

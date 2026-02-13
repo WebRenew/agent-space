@@ -1,8 +1,9 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
+import { spawn, ChildProcess, execFileSync } from 'child_process'
 import { createInterface, Interface as ReadlineInterface } from 'readline'
 import path from 'path'
 import fs from 'fs'
+import os from 'os'
 
 // ── Types (mirrored from renderer, kept lightweight for main process) ──
 
@@ -30,6 +31,94 @@ interface ActiveSession {
 
 const activeSessions = new Map<string, ActiveSession>()
 let sessionCounter = 0
+
+// ── Resolve Claude CLI binary ─────────────────────────────────────────
+
+/**
+ * Packaged Electron apps don't inherit the user's shell PATH.
+ * We resolve the claude binary by checking common install locations,
+ * then falling back to asking the user's login shell.
+ */
+function resolveClaudeBinary(): string {
+  const home = os.homedir()
+
+  // Common locations where claude gets installed
+  const candidates = [
+    path.join(home, '.local', 'bin', 'claude'),
+    path.join(home, '.bun', 'bin', 'claude'),
+    path.join(home, '.npm-global', 'bin', 'claude'),
+    path.join(home, 'bin', 'claude'),
+    '/usr/local/bin/claude',
+    '/opt/homebrew/bin/claude',
+  ]
+
+  // Also check nvm paths
+  const nvmDir = path.join(home, '.nvm', 'versions', 'node')
+  try {
+    if (fs.existsSync(nvmDir)) {
+      const versions = fs.readdirSync(nvmDir)
+      for (const v of versions) {
+        candidates.push(path.join(nvmDir, v, 'bin', 'claude'))
+      }
+    }
+  } catch {
+    // nvm dir doesn't exist — fine
+  }
+
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK)
+      console.log(`[claude-session] Found claude binary at: ${candidate}`)
+      return candidate
+    } catch {
+      // Not found or not executable — continue
+    }
+  }
+
+  // Last resort: try asking the user's login shell
+  try {
+    const shell = process.env.SHELL ?? '/bin/zsh'
+    const result = execFileSync(shell, ['-ilc', 'which claude'], {
+      encoding: 'utf-8',
+      timeout: 5000,
+      env: { ...process.env, HOME: home },
+    }).trim()
+    if (result && fs.existsSync(result)) {
+      console.log(`[claude-session] Resolved claude via login shell: ${result}`)
+      return result
+    }
+  } catch {
+    // Shell resolution failed — continue
+  }
+
+  // Fall back to bare 'claude' and let spawn try PATH
+  console.warn('[claude-session] Could not resolve claude binary, falling back to bare "claude"')
+  return 'claude'
+}
+
+/**
+ * Build a comprehensive PATH that includes common user binary dirs.
+ * This ensures spawned processes can find tools even from a packaged app.
+ */
+function getEnhancedEnv(): NodeJS.ProcessEnv {
+  const home = os.homedir()
+  const extraPaths = [
+    path.join(home, '.local', 'bin'),
+    path.join(home, '.bun', 'bin'),
+    path.join(home, '.npm-global', 'bin'),
+    path.join(home, 'bin'),
+    '/usr/local/bin',
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
+  ]
+
+  const currentPath = process.env.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin'
+  const enhancedPath = [...extraPaths, ...currentPath.split(':')].join(':')
+
+  return { ...process.env, PATH: enhancedPath }
+}
+
+let resolvedClaudePath: string | null = null
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -158,6 +247,11 @@ function startSession(
 ): string {
   const sessionId = generateSessionId()
 
+  // Resolve claude binary once
+  if (!resolvedClaudePath) {
+    resolvedClaudePath = resolveClaudeBinary()
+  }
+
   const args: string[] = [
     '-p',
     '--output-format', 'stream-json',
@@ -198,14 +292,14 @@ function startSession(
 
   let proc: ChildProcess
   try {
-    proc = spawn('claude', args, {
+    proc = spawn(resolvedClaudePath, args, {
       cwd,
-      env: { ...process.env },
+      env: getEnhancedEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error(`[claude-session] Failed to spawn claude CLI: ${message}`)
+    console.error(`[claude-session] Failed to spawn claude CLI (${resolvedClaudePath}): ${message}`)
     emitEvent(win, {
       sessionId,
       type: 'error',

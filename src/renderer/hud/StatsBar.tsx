@@ -13,7 +13,6 @@ export function StatsBar() {
   const totalTokensOut = agents.reduce((s, a) => s + a.tokens_output, 0)
   const totalFiles = agents.reduce((s, a) => s + a.files_modified, 0)
 
-  // Aggregate per-model tokens for accurate cost
   const allModelTokens = agents.reduce<Record<string, { input: number; output: number }>>(
     (acc, a) => {
       for (const [model, t] of Object.entries(a.sessionStats?.tokensByModel ?? {})) {
@@ -31,21 +30,32 @@ export function StatsBar() {
   const isMax = subscription?.type === 'max_5x' || subscription?.type === 'max_20x'
 
   return (
-    <div className="flex items-center gap-6 px-5 py-2.5 bg-black/60 backdrop-blur-sm rounded-b-xl border border-white/10 border-t-0 text-white text-sm">
-      <Stat label="Active" value={activeCount} color="#4ade80" />
+    <div
+      className="glass-panel"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 20, padding: '6px 16px',
+        borderRadius: '0 0 8px 8px', borderTop: 'none', fontSize: 13,
+      }}
+    >
+      <Stat label="Active" value={activeCount} color="#548C5A" />
       <Stat label="Tokens In" value={formatNum(totalTokensIn)} />
       <Stat label="Tokens Out" value={formatNum(totalTokensOut)} />
       <Stat label="Files" value={totalFiles} />
 
       {isMax && cost > 0 ? (
         <>
-          <Stat label="Saved" value={`$${cost.toFixed(3)}`} color="#4ade80" />
-          <span className="px-1.5 py-0.5 rounded bg-emerald-400/15 text-emerald-400 text-xs font-medium">
+          <Stat label="Saved" value={`$${cost.toFixed(3)}`} color="#548C5A" />
+          <span
+            style={{
+              padding: '2px 8px', borderRadius: 3, fontSize: 10, fontWeight: 700,
+              background: '#1a3a1a', color: '#548C5A',
+            }}
+          >
             Max
           </span>
         </>
       ) : (
-        <Stat label="Est. Cost" value={`$${cost.toFixed(3)}`} color="#fbbf24" />
+        <Stat label="Est. Cost" value={`$${cost.toFixed(3)}`} color="#d4a040" />
       )}
     </div>
   )
@@ -61,9 +71,9 @@ function Stat({
   color?: string
 }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-white/50 text-xs uppercase tracking-wider">{label}</span>
-      <span className="font-mono font-semibold" style={color ? { color } : undefined}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ color: '#74747C', fontSize: 10, fontWeight: 600, letterSpacing: 1 }}>{label}</span>
+      <span style={{ fontFamily: 'inherit', fontWeight: 600, color: color ?? '#9A9692' }}>
         {value}
       </span>
     </div>

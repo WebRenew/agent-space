@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { WorkspaceLayout } from './components/workspace/WorkspaceLayout'
 import { SettingsPanel } from './components/SettingsPanel'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { useSettingsStore, loadSettings } from './store/settings'
 
 export function App() {
@@ -16,7 +17,9 @@ export function App() {
 
   return (
     <div className="w-full h-full">
-      <WorkspaceLayout />
+      <ErrorBoundary fallbackLabel="WorkspaceLayout">
+        <WorkspaceLayout />
+      </ErrorBoundary>
       <SettingsPanel />
     </div>
   )

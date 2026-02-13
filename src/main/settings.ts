@@ -170,12 +170,53 @@ export function isValidDirectory(dirPath: string): boolean {
 
 export function createApplicationMenu(mainWindow: BrowserWindow): void {
   const isMac = process.platform === 'darwin'
+  const mod = isMac ? 'Cmd' : 'Ctrl'
 
-  const openSettings = (): void => {
+  const send = (channel: string): void => {
     if (!mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('menu:openSettings')
+      mainWindow.webContents.send(channel)
     }
   }
+
+  const sendWithData = (channel: string, data: string): void => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, data)
+    }
+  }
+
+  const openSettings = (): void => send('menu:openSettings')
+  const newTerminal = (): void => send('menu:newTerminal')
+  const focusChat = (): void => send('menu:focusChat')
+  const resetLayout = (): void => send('menu:resetLayout')
+
+  const openFolderDialog = async (): Promise<void> => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'Open Folder',
+      })
+      if (!result.canceled && result.filePaths.length > 0) {
+        sendWithData('fs:openFolder', result.filePaths[0])
+      }
+    } catch (err) {
+      console.error('[settings] openFolderDialog error:', err)
+    }
+  }
+
+  /** Panel focus items (Cmd/Ctrl+1 through 8) */
+  const panelItems: Electron.MenuItemConstructorOptions[] = [
+    { label: 'Chat', accelerator: `${mod}+1`, click: () => send('menu:focusPanel:chat') },
+    { label: 'Terminal', accelerator: `${mod}+2`, click: () => send('menu:focusPanel:terminal') },
+    { label: 'Tokens', accelerator: `${mod}+3`, click: () => send('menu:focusPanel:tokens') },
+    { label: 'Office', accelerator: `${mod}+4`, click: () => send('menu:focusPanel:scene3d') },
+    { label: 'Activity', accelerator: `${mod}+5`, click: () => send('menu:focusPanel:activity') },
+    { label: 'Memory Graph', accelerator: `${mod}+6`, click: () => send('menu:focusPanel:memoryGraph') },
+    { label: 'Agents', accelerator: `${mod}+7`, click: () => send('menu:focusPanel:agents') },
+    { label: 'Recent', accelerator: `${mod}+8`, click: () => send('menu:focusPanel:recentMemories') },
+    { type: 'separator' },
+    { label: 'Search Files', accelerator: `${mod}+P`, click: () => send('menu:focusPanel:fileSearch') },
+    { label: 'File Explorer', accelerator: `${mod}+Shift+E`, click: () => send('menu:focusPanel:fileExplorer') },
+  ]
 
   const template: Electron.MenuItemConstructorOptions[] = isMac
     ? [
@@ -184,11 +225,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
           submenu: [
             { role: 'about' },
             { type: 'separator' },
-            {
-              label: 'Settings...',
-              accelerator: 'Cmd+,',
-              click: openSettings
-            },
+            { label: 'Settings...', accelerator: 'Cmd+,', click: openSettings },
             { type: 'separator' },
             { role: 'services' },
             { type: 'separator' },
@@ -196,12 +233,18 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             { role: 'hideOthers' },
             { role: 'unhide' },
             { type: 'separator' },
-            { role: 'quit' }
-          ]
+            { role: 'quit' },
+          ],
         },
         {
           label: 'File',
-          submenu: [{ role: 'close' }]
+          submenu: [
+            { label: 'Open Folder...', accelerator: 'Cmd+O', click: () => void openFolderDialog() },
+            { type: 'separator' },
+            { label: 'New Terminal', accelerator: 'Cmd+Shift+N', click: newTerminal },
+            { type: 'separator' },
+            { role: 'close' },
+          ],
         },
         {
           label: 'Edit',
@@ -212,22 +255,26 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             { role: 'cut' },
             { role: 'copy' },
             { role: 'paste' },
-            { role: 'selectAll' }
-          ]
+            { role: 'selectAll' },
+          ],
         },
         {
           label: 'View',
           submenu: [
-            { role: 'reload' },
-            { role: 'forceReload' },
+            { label: 'Focus Chat Input', accelerator: 'Cmd+/', click: focusChat },
+            { type: 'separator' },
+            ...panelItems,
+            { type: 'separator' },
+            { label: 'Reset Layout', accelerator: 'Cmd+Shift+R', click: resetLayout },
+            { type: 'separator' },
             { role: 'toggleDevTools' },
             { type: 'separator' },
             { role: 'resetZoom' },
             { role: 'zoomIn' },
             { role: 'zoomOut' },
             { type: 'separator' },
-            { role: 'togglefullscreen' }
-          ]
+            { role: 'togglefullscreen' },
+          ],
         },
         {
           label: 'Window',
@@ -235,22 +282,21 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             { role: 'minimize' },
             { role: 'zoom' },
             { type: 'separator' },
-            { role: 'front' }
-          ]
-        }
+            { role: 'front' },
+          ],
+        },
       ]
     : [
         {
           label: 'File',
           submenu: [
-            {
-              label: 'Settings...',
-              accelerator: 'Ctrl+,',
-              click: openSettings
-            },
+            { label: 'Open Folder...', accelerator: 'Ctrl+O', click: () => void openFolderDialog() },
             { type: 'separator' },
-            { role: 'quit' }
-          ]
+            { label: 'New Terminal', accelerator: 'Ctrl+Shift+N', click: newTerminal },
+            { label: 'Settings...', accelerator: 'Ctrl+,', click: openSettings },
+            { type: 'separator' },
+            { role: 'quit' },
+          ],
         },
         {
           label: 'Edit',
@@ -261,23 +307,27 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             { role: 'cut' },
             { role: 'copy' },
             { role: 'paste' },
-            { role: 'selectAll' }
-          ]
+            { role: 'selectAll' },
+          ],
         },
         {
           label: 'View',
           submenu: [
-            { role: 'reload' },
-            { role: 'forceReload' },
+            { label: 'Focus Chat Input', accelerator: 'Ctrl+/', click: focusChat },
+            { type: 'separator' },
+            ...panelItems,
+            { type: 'separator' },
+            { label: 'Reset Layout', accelerator: 'Ctrl+Shift+R', click: resetLayout },
+            { type: 'separator' },
             { role: 'toggleDevTools' },
             { type: 'separator' },
             { role: 'resetZoom' },
             { role: 'zoomIn' },
             { role: 'zoomOut' },
             { type: 'separator' },
-            { role: 'togglefullscreen' }
-          ]
-        }
+            { role: 'togglefullscreen' },
+          ],
+        },
       ]
 
   const menu = Menu.buildFromTemplate(template)

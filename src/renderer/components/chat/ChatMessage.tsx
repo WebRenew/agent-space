@@ -10,39 +10,118 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function ToolCallCard({ message }: { message: ChatMessageType }) {
+/** Collapsible tool-call task card — orchid style with progress bar */
+function ToolTaskCard({ message }: { message: ChatMessageType }) {
   const [expanded, setExpanded] = useState(false)
-
   const toolLabel = message.toolName ?? 'Tool'
   const isError = message.isError === true
+  const isDone = !isError && message.role === 'tool'
 
   return (
-    <div className={`rounded-lg border ${isError ? 'border-red-500/30 bg-red-500/5' : 'border-white/10 bg-white/5'} overflow-hidden`}>
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-colors"
-      >
-        <span className={`text-xs font-mono font-semibold ${isError ? 'text-red-400' : 'text-amber-400'}`}>
-          {toolLabel}
-        </span>
-        <span className="text-white/30 text-xs ml-auto">{expanded ? '▾' : '▸'}</span>
-      </button>
-      {expanded && (
-        <div className="border-t border-white/10 px-3 py-2">
+    <div
+      className="task-card glass-panel"
+      onClick={() => setExpanded((v) => !v)}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        borderRadius: 4,
+        padding: '6px 12px',
+        marginBottom: 6,
+        cursor: 'pointer',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span style={{ color: '#595653' }}>&#9474;</span>
+          <span className="glow-amber" style={{ color: '#d4a040', fontWeight: 600, fontSize: 13 }}>
+            {toolLabel}
+          </span>
           {message.toolInput && (
-            <div className="mb-2">
-              <div className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Input</div>
-              <pre className="text-xs text-white/60 font-mono whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+            <span
+              style={{
+                color: '#74747C',
+                fontSize: 13,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {summarizeToolInput(message.toolInput)}
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {isDone && (
+            <span
+              className="glow-green"
+              style={{
+                background: '#1a3a1a',
+                color: '#548C5A',
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 3,
+              }}
+            >
+              DONE
+            </span>
+          )}
+          {isError && (
+            <span
+              style={{
+                background: '#3a1a1a',
+                color: '#c45050',
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: 3,
+              }}
+            >
+              ERROR
+            </span>
+          )}
+          <span style={{ color: '#595653', fontSize: 12 }}>
+            {expanded ? '▾' : '▸'}
+          </span>
+        </div>
+      </div>
+
+      <div className="progress-bar">
+        <div
+          className="progress-bar-fill"
+          style={{ width: isDone ? '100%' : isError ? '30%' : '60%' }}
+        />
+      </div>
+
+      {expanded && (
+        <div style={{ marginTop: 8 }}>
+          {message.toolInput && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ color: '#595653', fontSize: 10, fontWeight: 600, letterSpacing: 0.5, marginBottom: 2 }}>
+                INPUT
+              </div>
+              <pre style={{ color: '#74747C', fontSize: 12, fontFamily: 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 150, overflow: 'auto', margin: 0 }}>
                 {JSON.stringify(message.toolInput, null, 2)}
               </pre>
             </div>
           )}
           {message.content && (
             <div>
-              <div className="text-[10px] text-white/30 uppercase tracking-wider mb-1">
-                {message.role === 'tool' ? 'Result' : 'Output'}
+              <div style={{ color: '#595653', fontSize: 10, fontWeight: 600, letterSpacing: 0.5, marginBottom: 2 }}>
+                {message.role === 'tool' ? 'RESULT' : 'OUTPUT'}
               </div>
-              <pre className={`text-xs font-mono whitespace-pre-wrap break-all max-h-40 overflow-y-auto ${isError ? 'text-red-300' : 'text-white/60'}`}>
+              <pre
+                style={{
+                  color: isError ? '#c45050' : '#9A9692',
+                  fontSize: 12,
+                  fontFamily: 'inherit',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                  maxHeight: 150,
+                  overflow: 'auto',
+                  margin: 0,
+                }}
+              >
                 {message.content.slice(0, 2000)}
                 {message.content.length > 2000 ? '\n... (truncated)' : ''}
               </pre>
@@ -54,12 +133,66 @@ function ToolCallCard({ message }: { message: ChatMessageType }) {
   )
 }
 
+/** Extract a short summary from tool input for the card label */
+function summarizeToolInput(input: Record<string, unknown>): string {
+  // Common Claude Code tool patterns
+  const filePath = input.file_path ?? input.path ?? input.filename ?? input.target
+  if (typeof filePath === 'string') {
+    const short = filePath.split('/').slice(-2).join('/')
+    return short
+  }
+  const command = input.command ?? input.cmd
+  if (typeof command === 'string') {
+    return command.length > 60 ? `${command.slice(0, 57)}...` : command
+  }
+  const query = input.query ?? input.search ?? input.pattern
+  if (typeof query === 'string') {
+    return query.length > 60 ? `${query.slice(0, 57)}...` : query
+  }
+  return ''
+}
+
+/** Render assistant text as orchid-style content (plain text, bullets, code blocks) */
+function AssistantContent({ text }: { text: string }) {
+  const lines = text.split('\n')
+  const elements: React.ReactNode[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const trimmed = line.trim()
+
+    // Bullet points (- or * or •)
+    if (/^[-*•]\s/.test(trimmed)) {
+      elements.push(
+        <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 3 }}>
+          <span style={{ color: '#595653' }}>&#8226;</span>
+          <span style={{ color: '#9A9692' }}>{trimmed.replace(/^[-*•]\s+/, '')}</span>
+        </div>
+      )
+    }
+    // Empty lines
+    else if (trimmed === '') {
+      elements.push(<div key={i} style={{ height: 6 }} />)
+    }
+    // Regular text
+    else {
+      elements.push(
+        <p key={i} style={{ color: '#9A9692', margin: '4px 0', fontSize: 13 }}>
+          {trimmed}
+        </p>
+      )
+    }
+  }
+
+  return <>{elements}</>
+}
+
 export function ChatMessageBubble({ message }: Props) {
-  // Tool calls get a special card
+  // Tool calls and results get a task card
   if (message.role === 'tool' || (message.role === 'assistant' && message.toolName)) {
     return (
-      <div className="px-4 py-1">
-        <ToolCallCard message={message} />
+      <div style={{ paddingLeft: 8 }}>
+        <ToolTaskCard message={message} />
       </div>
     )
   }
@@ -67,11 +200,21 @@ export function ChatMessageBubble({ message }: Props) {
   // Thinking gets a subtle indicator
   if (message.role === 'thinking') {
     return (
-      <div className="px-4 py-1">
-        <div className="flex items-center gap-2 text-xs text-purple-300/60 italic">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-400/40 animate-pulse" />
-          <span className="max-w-md truncate">{message.content || 'Thinking...'}</span>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0 4px 8px' }}>
+        <span style={{ color: '#74747C', fontSize: 12 }}>&#x2726;</span>
+        <span
+          style={{
+            color: '#74747C',
+            fontSize: 13,
+            fontStyle: 'italic',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            maxWidth: 400,
+          }}
+        >
+          {message.content || 'Thinking...'}
+        </span>
       </div>
     )
   }
@@ -79,8 +222,17 @@ export function ChatMessageBubble({ message }: Props) {
   // Error messages
   if (message.role === 'error') {
     return (
-      <div className="px-4 py-1">
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-red-300 text-sm">
+      <div style={{ padding: '4px 0' }}>
+        <div
+          className="glass-panel"
+          style={{
+            borderColor: 'rgba(196, 80, 80, 0.3)',
+            borderRadius: 4,
+            padding: '6px 12px',
+            color: '#c45050',
+            fontSize: 13,
+          }}
+        >
           {message.content}
         </div>
       </div>
@@ -88,20 +240,47 @@ export function ChatMessageBubble({ message }: Props) {
   }
 
   const isUser = message.role === 'user'
+  const isAssistant = message.role === 'assistant'
 
   return (
-    <div className={`px-4 py-1.5 flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className="chat-msg" style={{ marginBottom: 16 }}>
+      {/* Header: icon + name + time */}
       <div
-        className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
-          isUser
-            ? 'bg-blue-600/80 text-white rounded-br-sm'
-            : 'bg-white/8 text-white/90 rounded-bl-sm border border-white/10'
-        }`}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 6,
+        }}
       >
-        <div className="whitespace-pre-wrap break-words">{message.content}</div>
-        <div className={`text-[10px] mt-1 ${isUser ? 'text-blue-200/50' : 'text-white/25'}`}>
-          {formatTime(message.timestamp)}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {isAssistant && <span style={{ fontSize: 14 }}>👾</span>}
+          {isUser && (
+            <span style={{ color: '#595653', fontSize: 10 }}>&#9654;</span>
+          )}
+          <span
+            className={isAssistant ? 'glow-amber' : ''}
+            style={{
+              color: isAssistant ? '#d4a040' : '#74747C',
+              fontWeight: 600,
+              fontSize: 13,
+            }}
+          >
+            {isAssistant ? 'claude' : 'you'}
+          </span>
         </div>
+        <span style={{ color: '#595653', fontSize: 12 }}>{formatTime(message.timestamp)}</span>
+      </div>
+
+      {/* Content */}
+      <div style={{ paddingLeft: isAssistant ? 8 : 16 }}>
+        {isUser ? (
+          <p className="glow-green" style={{ color: '#548C5A', margin: '4px 0', fontSize: 13 }}>
+            {message.content}
+          </p>
+        ) : (
+          <AssistantContent text={message.content} />
+        )}
       </div>
     </div>
   )

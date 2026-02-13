@@ -10,27 +10,21 @@ export function ObservabilityPanel() {
   const selected = agents.find((a) => a.id === selectedId) ?? agents[0] ?? null
 
   return (
-    <div className="flex flex-col h-full bg-[#16162a] text-white">
-      {/* Two-column body */}
-      <div className="flex flex-1 min-h-0">
-        {/* Left: Agent list */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0E0E0D', color: '#9A9692' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <AgentTokenList
           agents={agents}
           selectedId={selected?.id ?? null}
           onSelect={setSelectedId}
         />
-
-        {/* Right: Selected agent detail */}
         {selected ? (
           <AgentTokenDetail agent={selected} />
         ) : (
-          <div className="flex-1 flex items-center justify-center text-white/30 text-sm">
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#595653', fontSize: 13 }}>
             No active agents
           </div>
         )}
       </div>
-
-      {/* Bottom: Session totals */}
       <SessionTotals agents={agents} />
     </div>
   )

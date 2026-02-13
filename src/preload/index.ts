@@ -58,7 +58,107 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const handler = () => callback()
       ipcRenderer.on('menu:openSettings', handler)
       return () => { ipcRenderer.removeListener('menu:openSettings', handler) }
-    }
+    },
+
+    onNewTerminal: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on('menu:newTerminal', handler)
+      return () => { ipcRenderer.removeListener('menu:newTerminal', handler) }
+    },
+
+    onFocusChat: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on('menu:focusChat', handler)
+      return () => { ipcRenderer.removeListener('menu:focusChat', handler) }
+    },
+
+    onResetLayout: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on('menu:resetLayout', handler)
+      return () => { ipcRenderer.removeListener('menu:resetLayout', handler) }
+    },
+
+    onFocusPanel: (callback: (panelId: string) => void) => {
+      const channels = [
+        'menu:focusPanel:chat', 'menu:focusPanel:terminal', 'menu:focusPanel:tokens',
+        'menu:focusPanel:scene3d', 'menu:focusPanel:activity', 'menu:focusPanel:memoryGraph',
+        'menu:focusPanel:agents', 'menu:focusPanel:recentMemories',
+        'menu:focusPanel:fileExplorer', 'menu:focusPanel:fileSearch', 'menu:focusPanel:filePreview',
+      ]
+      const handlers = channels.map((ch) => {
+        const panelId = ch.split(':').pop()!
+        const handler = () => callback(panelId)
+        ipcRenderer.on(ch, handler)
+        return { ch, handler }
+      })
+      return () => {
+        for (const { ch, handler } of handlers) {
+          ipcRenderer.removeListener(ch, handler)
+        }
+      }
+    },
+  },
+  fs: {
+    readDir: (dirPath: string, showHidden?: boolean) =>
+      ipcRenderer.invoke('fs:readDir', dirPath, showHidden) as Promise<Array<{
+        name: string; path: string; isDirectory: boolean; isSymlink: boolean; size: number; modified: number
+      }>>,
+
+    readFile: (filePath: string) =>
+      ipcRenderer.invoke('fs:readFile', filePath) as Promise<{
+        content: string; truncated: boolean; size: number
+      }>,
+
+    search: (rootDir: string, query: string, maxResults?: number) =>
+      ipcRenderer.invoke('fs:search', rootDir, query, maxResults) as Promise<Array<{
+        path: string; name: string; isDirectory: boolean
+      }>>,
+
+    homeDir: () =>
+      ipcRenderer.invoke('fs:homeDir') as Promise<string>,
+
+    stat: (filePath: string) =>
+      ipcRenderer.invoke('fs:stat', filePath) as Promise<{
+        isDirectory: boolean; isFile: boolean; size: number; modified: number
+      }>,
+
+    writeFile: (filePath: string, content: string) =>
+      ipcRenderer.invoke('fs:writeFile', filePath, content) as Promise<void>,
+
+    openFolderDialog: () =>
+      ipcRenderer.invoke('fs:openFolderDialog') as Promise<string | null>,
+
+    onOpenFolder: (callback: (folderPath: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, folderPath: string) =>
+        callback(folderPath)
+      ipcRenderer.on('fs:openFolder', handler)
+      return () => { ipcRenderer.removeListener('fs:openFolder', handler) }
+    },
+  },
+  lsp: {
+    start: (languageId: string) =>
+      ipcRenderer.invoke('lsp:start', languageId) as Promise<{
+        serverId: string; languages: string[]
+      } | null>,
+
+    send: (serverId: string, message: unknown) =>
+      ipcRenderer.invoke('lsp:send', serverId, message) as Promise<boolean>,
+
+    stop: (serverId: string) =>
+      ipcRenderer.invoke('lsp:stop', serverId) as Promise<boolean>,
+
+    languages: () =>
+      ipcRenderer.invoke('lsp:languages') as Promise<Array<{
+        name: string; languages: string[]; active: boolean
+      }>>,
+
+    onMessage: (callback: (data: { serverId: string; message: unknown }) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, data: { serverId: string; message: unknown }): void => {
+        callback(data)
+      }
+      ipcRenderer.on('lsp:message', handler)
+      return () => { ipcRenderer.removeListener('lsp:message', handler) }
+    },
   },
   claude: {
     start: (options: { prompt: string; model?: string; systemPrompt?: string; allowedTools?: string[]; workingDirectory?: string }) =>

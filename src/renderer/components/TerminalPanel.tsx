@@ -87,6 +87,13 @@ export function TerminalPanel() {
     }
   }, [addTerminal, removeTerminal, removeAgent])
 
+  // Listen for hotkey event from WorkspaceLayout (Cmd+Shift+N)
+  useEffect(() => {
+    const handler = (): void => { void handleCreateTerminal() }
+    window.addEventListener('hotkey:newTerminal', handler as EventListener)
+    return () => window.removeEventListener('hotkey:newTerminal', handler as EventListener)
+  }, [handleCreateTerminal])
+
   const handleCloseTerminal = useCallback(
     async (terminalId: string, e: React.MouseEvent) => {
       e.stopPropagation()
@@ -164,43 +171,50 @@ export function TerminalPanel() {
 
   return (
     <div
-      className="flex flex-col bg-[#16162a] border-t border-[#2a2a4a]"
-      style={{ height: panelHeight, flexShrink: 0 }}
+      className="flex flex-col"
+      style={{ background: '#0E0E0D', borderTop: '1px solid rgba(89,86,83,0.2)', height: panelHeight, flexShrink: 0 }}
     >
       {/* Resize handle */}
       <div
-        className="h-1 cursor-ns-resize hover:bg-[#4ade80]/30 transition-colors"
+        className="h-1 cursor-ns-resize transition-colors"
+        style={{ background: 'transparent' }}
+        onMouseOver={(e) => { (e.target as HTMLElement).style.background = 'rgba(84,140,90,0.3)' }}
+        onMouseOut={(e) => { (e.target as HTMLElement).style.background = 'transparent' }}
         onMouseDown={handleDragStart}
       />
 
       {/* Tab bar */}
-      <div className="flex items-center h-8 bg-[#12122a] border-b border-[#2a2a4a] px-1 gap-0.5 shrink-0">
+      <div className="flex items-center h-8 px-1 gap-0.5 shrink-0" style={{ background: 'rgba(14,14,13,0.8)', borderBottom: '1px solid rgba(89,86,83,0.2)' }}>
         {/* Chat tab */}
         <button
           onClick={() => setActiveView('chat')}
-          className={`flex items-center gap-1.5 px-3 h-7 rounded-t text-xs font-medium transition-colors ${
-            activeView === 'chat'
-              ? 'bg-[#16162a] text-white'
-              : 'text-gray-400 hover:text-gray-200 hover:bg-[#1a1a3a]'
-          }`}
+          className="nav-item"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 28,
+            borderRadius: '4px 4px 0 0', fontSize: 12, fontWeight: 600, border: 'none',
+            cursor: 'pointer', fontFamily: 'inherit', background: 'transparent',
+            color: activeView === 'chat' ? '#548C5A' : '#595653',
+          }}
         >
-          <span className="w-2 h-2 rounded-full shrink-0 bg-cyan-400" />
+          <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: '#548C5A' }} />
           <span>Chat</span>
         </button>
 
         {/* Events tab */}
         <button
           onClick={() => setActiveView('events')}
-          className={`flex items-center gap-1.5 px-3 h-7 rounded-t text-xs font-medium transition-colors ${
-            activeView === 'events'
-              ? 'bg-[#16162a] text-white'
-              : 'text-gray-400 hover:text-gray-200 hover:bg-[#1a1a3a]'
-          }`}
+          className="nav-item"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 28,
+            borderRadius: '4px 4px 0 0', fontSize: 12, fontWeight: 600, border: 'none',
+            cursor: 'pointer', fontFamily: 'inherit', background: 'transparent',
+            color: activeView === 'events' ? '#d4a040' : '#595653',
+          }}
         >
-          <span className="w-2 h-2 rounded-full shrink-0 bg-purple-400" />
+          <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: '#c87830' }} />
           <span>Events</span>
           {eventCount > 0 && (
-            <span className="ml-1 text-[10px] bg-purple-500/20 text-purple-300 px-1.5 rounded-full">
+            <span style={{ marginLeft: 4, fontSize: 10, background: 'rgba(200,120,48,0.2)', color: '#c87830', padding: '0 6px', borderRadius: 8 }}>
               {eventCount > 99 ? '99+' : eventCount}
             </span>
           )}
@@ -209,19 +223,21 @@ export function TerminalPanel() {
         {/* Observability tab */}
         <button
           onClick={() => setActiveView('observability')}
-          className={`flex items-center gap-1.5 px-3 h-7 rounded-t text-xs font-medium transition-colors ${
-            activeView === 'observability'
-              ? 'bg-[#16162a] text-white'
-              : 'text-gray-400 hover:text-gray-200 hover:bg-[#1a1a3a]'
-          }`}
+          className="nav-item"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 28,
+            borderRadius: '4px 4px 0 0', fontSize: 12, fontWeight: 600, border: 'none',
+            cursor: 'pointer', fontFamily: 'inherit', background: 'transparent',
+            color: activeView === 'observability' ? '#d4a040' : '#595653',
+          }}
           title="Cmd+Shift+O"
         >
-          <span className="w-2 h-2 rounded-full shrink-0 bg-amber-400" />
+          <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: '#d4a040' }} />
           <span>Tokens</span>
         </button>
 
         {/* Separator */}
-        <div className="w-px h-4 bg-[#2a2a4a] mx-0.5" />
+        <div style={{ width: 1, height: 16, background: 'rgba(89,86,83,0.2)', margin: '0 2px' }} />
 
         {/* Terminal tabs */}
         {terminals.map((term) => {
@@ -232,12 +248,12 @@ export function TerminalPanel() {
               key={term.id}
               onClick={() => handleSelectTerminal(term.id)}
               onContextMenu={(e) => handleTabContextMenu(e, term.id)}
-              className={`flex items-center gap-1.5 px-3 h-7 rounded-t text-xs font-medium transition-colors ${
-                isActiveTab
-                  ? 'bg-[#16162a] text-white'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-[#1a1a3a]'
-              }`}
+              className="nav-item"
               style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 28,
+                borderRadius: '4px 4px 0 0', fontSize: 12, fontWeight: 600, border: 'none',
+                cursor: 'pointer', fontFamily: 'inherit', background: 'transparent',
+                color: isActiveTab ? '#9A9692' : '#595653',
                 borderLeft: `2px solid ${isActiveTab ? scopeColor : 'transparent'}`,
                 backgroundColor: isActiveTab && scopeColor !== 'transparent'
                   ? `${scopeColor}15`
@@ -246,14 +262,16 @@ export function TerminalPanel() {
             >
               {/* Status dot */}
               <span
-                className={`w-2 h-2 rounded-full shrink-0 ${
-                  term.isClaudeRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-500'
-                }`}
+                style={{
+                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                  background: term.isClaudeRunning ? '#548C5A' : '#595653',
+                  animation: term.isClaudeRunning ? 'pulse 2s ease-in-out infinite' : undefined,
+                }}
               />
-              <span className="truncate max-w-[100px]">{term.label}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{term.label}</span>
               <span
                 onClick={(e) => handleCloseTerminal(term.id, e)}
-                className="ml-1 text-gray-500 hover:text-red-400 hover:bg-red-400/10 rounded px-0.5 transition-colors"
+                style={{ marginLeft: 4, color: '#595653', cursor: 'pointer', borderRadius: 2, padding: '0 2px' }}
               >
                 ×
               </span>
@@ -264,8 +282,9 @@ export function TerminalPanel() {
         {/* New terminal button */}
         <button
           onClick={handleCreateTerminal}
-          className="flex items-center justify-center w-7 h-7 text-gray-400 hover:text-green-400 hover:bg-green-400/10 rounded transition-colors text-lg leading-none"
-          title="New Terminal"
+          className="nav-item"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, color: '#595653', borderRadius: 4, fontSize: 16, lineHeight: 1, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+          title="New Terminal (⌘⇧N)"
         >
           +
         </button>
@@ -274,32 +293,35 @@ export function TerminalPanel() {
       {/* Context menu for scope switching */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-[#1a1a2e] border border-white/15 rounded-lg shadow-xl py-1 min-w-[160px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          className="glass-panel"
+          style={{ position: 'fixed', zIndex: 50, borderRadius: 8, padding: '4px 0', minWidth: 160, left: contextMenu.x, top: contextMenu.y }}
         >
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+          <div style={{ padding: '6px 12px', fontSize: 10, fontWeight: 600, letterSpacing: 1, color: '#74747C' }}>
             Change Scope
           </div>
           <button
             onClick={() => handleAutoDetectScope(contextMenu.terminalId)}
-            className="w-full px-3 py-1.5 text-xs text-left text-gray-300 hover:bg-white/10 transition-colors"
+            className="hover-row"
+            style={{ width: '100%', padding: '6px 12px', fontSize: 12, textAlign: 'left', color: '#9A9692', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
           >
             Auto-detect
           </button>
           <button
             onClick={() => handleChangeScopeFromMenu(contextMenu.terminalId, null)}
-            className="w-full px-3 py-1.5 text-xs text-left text-gray-300 hover:bg-white/10 transition-colors flex items-center gap-2"
+            className="hover-row"
+            style={{ width: '100%', padding: '6px 12px', fontSize: 12, textAlign: 'left', color: '#9A9692', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 8 }}
           >
-            <span className="w-2 h-2 rounded-full bg-gray-500" />
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#595653' }} />
             None
           </button>
           {useSettingsStore.getState().settings.scopes.map((scope) => (
             <button
               key={scope.id}
               onClick={() => handleChangeScopeFromMenu(contextMenu.terminalId, scope.id)}
-              className="w-full px-3 py-1.5 text-xs text-left text-gray-300 hover:bg-white/10 transition-colors flex items-center gap-2"
+              className="hover-row"
+              style={{ width: '100%', padding: '6px 12px', fontSize: 12, textAlign: 'left', color: '#9A9692', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 8 }}
             >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: scope.color }} />
+              <span style={{ width: 7, height: 7, borderRadius: '50%' }} style={{ backgroundColor: scope.color }} />
               {scope.name}
             </button>
           ))}
@@ -315,8 +337,8 @@ export function TerminalPanel() {
         ) : activeView === 'observability' ? (
           <ObservabilityPanel />
         ) : terminals.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-            Click <span className="text-green-400 mx-1 font-bold">+</span> to open a terminal
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#595653', fontSize: 13 }}>
+            Click <span style={{ color: '#548C5A', margin: '0 4px', fontWeight: 700 }}>+</span> to open a terminal
           </div>
         ) : (
           terminals.map((term) => (

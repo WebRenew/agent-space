@@ -62,10 +62,17 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className={`relative w-9 h-5 rounded-full transition-colors ${checked ? 'bg-green-500' : 'bg-white/20'}`}
+      style={{
+        position: 'relative', width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+        background: checked ? '#548C5A' : 'rgba(89,86,83,0.3)', transition: 'background 0.2s ease',
+      }}
     >
       <span
-        className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-4' : ''}`}
+        style={{
+          position: 'absolute', top: 2, left: checked ? 18 : 2,
+          width: 16, height: 16, borderRadius: '50%', background: '#9A9692',
+          transition: 'left 0.2s ease',
+        }}
       />
     </button>
   )
@@ -86,10 +93,14 @@ function Select({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="bg-white/10 border border-white/15 rounded-md px-2 py-1.5 text-sm text-white outline-none focus:border-green-400/50 min-w-[160px]"
+      style={{
+        background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+        borderRadius: 6, padding: '5px 8px', fontSize: 13, color: '#9A9692',
+        outline: 'none', fontFamily: 'inherit', minWidth: 160,
+      }}
     >
       {options.map((opt) => (
-        <option key={opt} value={opt} className="bg-[#1a1a2e]">
+        <option key={opt} value={opt} style={{ background: '#0E0E0D' }}>
           {labels?.[opt] ?? opt}
         </option>
       ))}
@@ -123,25 +134,29 @@ function NumberInput({
           onChange(parsed)
         }
       }}
-      className="bg-white/10 border border-white/15 rounded-md px-2 py-1.5 text-sm text-white outline-none focus:border-green-400/50 w-20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      style={{
+        background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+        borderRadius: 6, padding: '5px 8px', fontSize: 13, color: '#9A9692',
+        outline: 'none', fontFamily: 'inherit', width: 80,
+      }}
     />
   )
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-2">
-      <span className="text-sm text-gray-300">{label}</span>
-      <div className="flex items-center gap-2">{children}</div>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
+      <span style={{ fontSize: 13, color: '#9A9692' }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{children}</div>
     </div>
   )
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mb-5">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">{title}</div>
-      <div className="divide-y divide-white/5">{children}</div>
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, color: '#74747C', marginBottom: 8 }}>{title}</div>
+      <div>{children}</div>
     </div>
   )
 }
@@ -274,48 +289,54 @@ export function SettingsPanel() {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeSettings} />
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={closeSettings} />
 
       {/* Panel */}
-      <div className="relative w-[600px] max-h-[80vh] bg-black/90 backdrop-blur-md rounded-xl border border-white/15 shadow-2xl flex flex-col overflow-hidden">
+      <div
+        className="glass-panel"
+        style={{
+          position: 'relative', width: 600, maxHeight: '80vh',
+          borderRadius: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-4 pb-0">
-          <h2 className="text-base font-semibold text-white">Settings</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px 0' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, color: '#9A9692', margin: 0 }}>Settings</h2>
           <button
             onClick={closeSettings}
-            className="text-gray-500 hover:text-white transition-colors text-lg leading-none"
+            style={{ background: 'transparent', border: 'none', color: '#595653', fontSize: 18, cursor: 'pointer', fontFamily: 'inherit' }}
           >
             &times;
           </button>
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-0 px-5 mt-3 border-b border-white/10">
+        <div style={{ display: 'flex', gap: 0, padding: '0 18px', marginTop: 10, borderBottom: '1px solid rgba(89,86,83,0.2)' }}>
           {TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 text-sm font-medium transition-colors relative ${
-                activeTab === tab.id
-                  ? 'text-white'
-                  : 'text-gray-500 hover:text-gray-300'
-              }`}
+              className="nav-item"
+              style={{
+                padding: '8px 14px', fontSize: 12, fontWeight: 600, letterSpacing: 0.5,
+                background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                color: activeTab === tab.id ? '#548C5A' : '#595653',
+                borderBottom: activeTab === tab.id ? '2px solid #548C5A' : '2px solid transparent',
+                textShadow: activeTab === tab.id ? '0 0 8px rgba(84,140,90,0.4)' : 'none',
+              }}
             >
               {tab.label}
-              {activeTab === tab.id && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-green-400 rounded-full" />
-              )}
             </button>
           ))}
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 min-h-0">
+        <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', minHeight: 0 }}>
           {activeTab === 'general' && (
             <>
-              <Section title="Starting Directory">
+              <Section title="STARTING DIRECTORY">
                 <Row label="Open new terminals in">
                   <Select
                     value={draft.general.startingDirectory}
@@ -326,17 +347,25 @@ export function SettingsPanel() {
                 </Row>
                 {draft.general.startingDirectory === 'custom' && (
                   <Row label="Custom path">
-                    <div className="flex items-center gap-2">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <input
                         type="text"
                         value={draft.general.customDirectory}
                         onChange={(e) => updateGeneral({ customDirectory: e.target.value })}
                         placeholder="/path/to/directory"
-                        className="bg-white/10 border border-white/15 rounded-md px-2 py-1.5 text-sm text-white outline-none focus:border-green-400/50 w-48"
+                        style={{
+                          background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+                          borderRadius: 6, padding: '5px 8px', fontSize: 13, color: '#9A9692',
+                          outline: 'none', fontFamily: 'inherit', width: 180,
+                        }}
                       />
                       <button
                         onClick={handleBrowse}
-                        className="px-2.5 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/15 border border-white/15 rounded-md text-gray-300 transition-colors"
+                        style={{
+                          padding: '5px 10px', fontSize: 12, fontWeight: 500,
+                          background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+                          borderRadius: 6, color: '#9A9692', cursor: 'pointer', fontFamily: 'inherit',
+                        }}
                       >
                         Browse...
                       </button>
@@ -344,7 +373,7 @@ export function SettingsPanel() {
                   </Row>
                 )}
               </Section>
-              <Section title="Shell">
+              <Section title="SHELL">
                 <Row label="Shell program">
                   <Select
                     value={draft.general.shell}
@@ -360,7 +389,11 @@ export function SettingsPanel() {
                       value={draft.general.customShell}
                       onChange={(e) => updateGeneral({ customShell: e.target.value })}
                       placeholder="/bin/zsh"
-                      className="bg-white/10 border border-white/15 rounded-md px-2 py-1.5 text-sm text-white outline-none focus:border-green-400/50 w-48"
+                      style={{
+                        background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+                        borderRadius: 6, padding: '5px 8px', fontSize: 13, color: '#9A9692',
+                        outline: 'none', fontFamily: 'inherit', width: 180,
+                      }}
                     />
                   </Row>
                 )}
@@ -370,7 +403,7 @@ export function SettingsPanel() {
 
           {activeTab === 'appearance' && (
             <>
-              <Section title="Theme">
+              <Section title="THEME">
                 <Row label="Terminal theme">
                   <Select
                     value={draft.appearance.terminalTheme}
@@ -379,16 +412,16 @@ export function SettingsPanel() {
                     onChange={(v) => updateAppearance({ terminalTheme: v as TerminalThemeName })}
                   />
                 </Row>
-                <div className="flex gap-1.5 py-2">
+                <div style={{ display: 'flex', gap: 5, padding: '8px 0' }}>
                   {(() => {
                     const t = getTheme(draft.appearance.terminalTheme)
                     return [t.background, t.foreground, t.red, t.green, t.blue, t.yellow, t.magenta, t.cyan].map((c, i) => (
-                      <span key={i} className="w-5 h-5 rounded" style={{ backgroundColor: c as string }} />
+                      <span key={i} style={{ width: 20, height: 20, borderRadius: 4, backgroundColor: c as string }} />
                     ))
                   })()}
                 </div>
               </Section>
-              <Section title="Font">
+              <Section title="FONT">
                 <Row label="Font family">
                   <Select
                     value={draft.appearance.fontFamily}
@@ -407,18 +440,20 @@ export function SettingsPanel() {
                   />
                 </Row>
               </Section>
-              <Section title="Cursor">
+              <Section title="CURSOR">
                 <Row label="Cursor style">
-                  <div className="flex gap-1">
+                  <div style={{ display: 'flex', gap: 4 }}>
                     {CURSOR_STYLES.map((cs) => (
                       <button
                         key={cs.value}
                         onClick={() => updateAppearance({ cursorStyle: cs.value })}
-                        className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors ${
-                          draft.appearance.cursorStyle === cs.value
-                            ? 'bg-green-500/20 border-green-400/50 text-green-400'
-                            : 'bg-white/5 border-white/15 text-gray-400 hover:text-white'
-                        }`}
+                        style={{
+                          padding: '4px 10px', fontSize: 12, fontWeight: 500, borderRadius: 6, cursor: 'pointer',
+                          fontFamily: 'inherit', transition: 'all 0.2s ease',
+                          background: draft.appearance.cursorStyle === cs.value ? 'rgba(84,140,90,0.2)' : 'rgba(89,86,83,0.1)',
+                          border: `1px solid ${draft.appearance.cursorStyle === cs.value ? 'rgba(84,140,90,0.5)' : 'rgba(89,86,83,0.3)'}`,
+                          color: draft.appearance.cursorStyle === cs.value ? '#548C5A' : '#74747C',
+                        }}
                       >
                         {cs.label}
                       </button>
@@ -437,7 +472,7 @@ export function SettingsPanel() {
 
           {activeTab === 'terminal' && (
             <>
-              <Section title="Scrollback">
+              <Section title="SCROLLBACK">
                 <Row label="Scrollback lines">
                   <NumberInput
                     value={draft.terminal.scrollbackLines}
@@ -448,7 +483,7 @@ export function SettingsPanel() {
                   />
                 </Row>
               </Section>
-              <Section title="Behavior">
+              <Section title="BEHAVIOR">
                 <Row label="Copy on select">
                   <Toggle
                     checked={draft.terminal.copyOnSelect}
@@ -462,7 +497,7 @@ export function SettingsPanel() {
                   />
                 </Row>
               </Section>
-              <Section title="Bell">
+              <Section title="BELL">
                 <Row label="Visual bell">
                   <Toggle
                     checked={draft.terminal.visualBell}
@@ -481,7 +516,7 @@ export function SettingsPanel() {
 
           {activeTab === 'scopes' && (
             <>
-              <Section title="Notification Sounds">
+              <Section title="NOTIFICATION SOUNDS">
                 <Row label="Enable sounds">
                   <Toggle
                     checked={draft.soundsEnabled}
@@ -490,64 +525,77 @@ export function SettingsPanel() {
                 </Row>
               </Section>
 
-              <Section title="Scopes">
+              <Section title="SCOPES">
                 {draft.scopes.length === 0 && (
-                  <div className="text-xs text-white/40 py-3">
+                  <div style={{ fontSize: 12, color: '#595653', padding: '10px 0' }}>
                     No scopes configured. Add a scope to group terminals by project.
                   </div>
                 )}
                 {draft.scopes.map((scope) => (
-                  <div key={scope.id} className="py-3 border-b border-white/5 last:border-0">
-                    <div className="flex items-center gap-2 mb-2">
+                  <div key={scope.id} style={{ padding: '10px 0', borderBottom: '1px solid rgba(89,86,83,0.15)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <input
                         type="text"
                         value={scope.name}
                         onChange={(e) => updateScope(scope.id, { name: e.target.value })}
-                        className="bg-white/10 border border-white/15 rounded-md px-2 py-1 text-sm text-white outline-none focus:border-green-400/50 flex-1"
+                        style={{
+                          flex: 1, background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+                          borderRadius: 6, padding: '4px 8px', fontSize: 13, color: '#9A9692',
+                          outline: 'none', fontFamily: 'inherit',
+                        }}
                       />
                       <input
                         type="text"
                         value={scope.color}
                         onChange={(e) => updateScope(scope.id, { color: e.target.value })}
-                        className="bg-white/10 border border-white/15 rounded-md px-2 py-1 text-sm text-white outline-none focus:border-green-400/50 w-20 font-mono"
                         placeholder="#hex"
+                        style={{
+                          width: 72, background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+                          borderRadius: 6, padding: '4px 8px', fontSize: 13, color: '#9A9692',
+                          outline: 'none', fontFamily: 'inherit',
+                        }}
                       />
-                      <span className="w-5 h-5 rounded" style={{ backgroundColor: scope.color }} />
+                      <span style={{ width: 20, height: 20, borderRadius: 4, backgroundColor: scope.color }} />
                       <button
                         onClick={() => removeScope(scope.id)}
-                        className="text-gray-500 hover:text-red-400 text-xs px-1.5 py-0.5 rounded hover:bg-red-400/10 transition-colors"
+                        style={{
+                          background: 'transparent', border: 'none', color: '#595653', fontSize: 12,
+                          cursor: 'pointer', fontFamily: 'inherit',
+                        }}
                       >
                         Remove
                       </button>
                     </div>
 
                     {/* Color presets */}
-                    <div className="flex gap-1 mb-2">
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
                       {SCOPE_COLOR_PRESETS.map((color) => (
                         <button
                           key={color}
                           onClick={() => updateScope(scope.id, { color })}
-                          className={`w-4 h-4 rounded-full border transition-all ${
-                            scope.color === color ? 'border-white scale-125' : 'border-transparent hover:scale-110'
-                          }`}
-                          style={{ backgroundColor: color }}
+                          style={{
+                            width: 16, height: 16, borderRadius: '50%', backgroundColor: color, cursor: 'pointer',
+                            border: scope.color === color ? '2px solid #9A9692' : '2px solid transparent',
+                            transform: scope.color === color ? 'scale(1.25)' : 'scale(1)',
+                            transition: 'all 0.15s ease',
+                          }}
                         />
                       ))}
                     </div>
 
                     {/* Directories */}
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1 mt-3">
-                      Directories
+                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, color: '#74747C', marginBottom: 4, marginTop: 10 }}>
+                      DIRECTORIES
                     </div>
                     {scope.directories.length === 0 && (
-                      <div className="text-xs text-white/30 mb-1">No directories</div>
+                      <div style={{ fontSize: 12, color: '#595653', marginBottom: 4 }}>No directories</div>
                     )}
                     {scope.directories.map((dir, i) => (
-                      <div key={i} className="flex items-center gap-1.5 mb-1">
-                        <span className="text-xs text-gray-400 font-mono truncate flex-1">{dir}</span>
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, color: '#74747C', fontFamily: 'inherit', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{dir}</span>
                         <button
                           onClick={() => removeDirectoryFromScope(scope.id, i)}
-                          className="text-gray-500 hover:text-red-400 text-xs transition-colors"
+                          style={{ background: 'transparent', border: 'none', color: '#595653', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}
                         >
                           ×
                         </button>
@@ -555,28 +603,32 @@ export function SettingsPanel() {
                     ))}
                     <button
                       onClick={() => addDirectoryToScope(scope.id)}
-                      className="text-xs text-green-400 hover:text-green-300 transition-colors mt-1"
+                      style={{ background: 'transparent', border: 'none', color: '#548C5A', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', marginTop: 4 }}
                     >
                       + Add directory
                     </button>
 
                     {/* Per-scope sounds */}
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1 mt-3">
-                      Sound Overrides
+                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, color: '#74747C', marginBottom: 4, marginTop: 10 }}>
+                      SOUND OVERRIDES
                     </div>
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
                       {(Object.keys(SOUND_EVENT_LABELS) as SoundEventType[]).map((evt) => (
-                        <div key={evt} className="flex items-center gap-1.5">
-                          <span className="text-xs text-gray-400 flex-1">{SOUND_EVENT_LABELS[evt]}</span>
+                        <div key={evt} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: '#74747C', flex: 1 }}>{SOUND_EVENT_LABELS[evt]}</span>
                           <select
                             value={scope.soundEvents[evt] ?? ''}
                             onChange={(e) => updateScopeSoundEvent(scope.id, evt, e.target.value as SystemSound | 'none' | '')}
-                            className="bg-white/10 border border-white/15 rounded px-1 py-0.5 text-[11px] text-white outline-none w-20"
+                            style={{
+                              background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+                              borderRadius: 4, padding: '2px 4px', fontSize: 11, color: '#9A9692',
+                              outline: 'none', fontFamily: 'inherit', width: 80,
+                            }}
                           >
-                            <option value="" className="bg-[#1a1a2e]">Default</option>
-                            <option value="none" className="bg-[#1a1a2e]">None</option>
+                            <option value="" style={{ background: '#0E0E0D' }}>Default</option>
+                            <option value="none" style={{ background: '#0E0E0D' }}>None</option>
                             {SYSTEM_SOUND_NAMES.map((s) => (
-                              <option key={s} value={s} className="bg-[#1a1a2e]">{s}</option>
+                              <option key={s} value={s} style={{ background: '#0E0E0D' }}>{s}</option>
                             ))}
                           </select>
                           <button
@@ -584,7 +636,7 @@ export function SettingsPanel() {
                               const sound = scope.soundEvents[evt] || DEFAULT_SOUND_EVENTS[evt]
                               if (sound && sound !== 'none') playSystemSound(sound as SystemSound)
                             }}
-                            className="text-gray-500 hover:text-white text-xs transition-colors"
+                            style={{ background: 'transparent', border: 'none', color: '#595653', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}
                             title="Preview"
                           >
                             ▶
@@ -597,22 +649,30 @@ export function SettingsPanel() {
 
                 <button
                   onClick={addScope}
-                  className="mt-2 px-3 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/15 border border-white/15 rounded-md text-gray-300 transition-colors"
+                  style={{
+                    marginTop: 8, padding: '5px 12px', fontSize: 12, fontWeight: 500,
+                    background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+                    borderRadius: 6, color: '#9A9692', cursor: 'pointer', fontFamily: 'inherit',
+                  }}
                 >
                   + Add Scope
                 </button>
               </Section>
 
-              <Section title="Default Scope">
+              <Section title="DEFAULT SCOPE">
                 <Row label="Color for unmatched terminals">
-                  <div className="flex items-center gap-2">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input
                       type="text"
                       value={draft.defaultScope.color}
                       onChange={(e) => setDraft((d) => ({ ...d, defaultScope: { ...d.defaultScope, color: e.target.value } }))}
-                      className="bg-white/10 border border-white/15 rounded-md px-2 py-1 text-sm text-white outline-none focus:border-green-400/50 w-20 font-mono"
+                      style={{
+                        width: 72, background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+                        borderRadius: 6, padding: '4px 8px', fontSize: 13, color: '#9A9692',
+                        outline: 'none', fontFamily: 'inherit',
+                      }}
                     />
-                    <span className="w-5 h-5 rounded" style={{ backgroundColor: draft.defaultScope.color }} />
+                    <span style={{ width: 20, height: 20, borderRadius: 4, backgroundColor: draft.defaultScope.color }} />
                   </div>
                 </Row>
               </Section>
@@ -621,10 +681,10 @@ export function SettingsPanel() {
 
           {activeTab === 'subscription' && (
             <>
-              <Section title="Subscription Plan">
-                <div className="space-y-2 py-2">
+              <Section title="SUBSCRIPTION PLAN">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
                   {(Object.entries(SUBSCRIPTION_OPTIONS) as [SubscriptionType, { label: string; monthlyCost: number }][]).map(([key, opt]) => (
-                    <label key={key} className="flex items-center gap-3 cursor-pointer py-1">
+                    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '4px 0' }}>
                       <input
                         type="radio"
                         name="subscription"
@@ -636,17 +696,17 @@ export function SettingsPanel() {
                             subscription: { type: key, monthlyCost: opt.monthlyCost }
                           }))
                         }
-                        className="accent-emerald-400"
+                        style={{ accentColor: '#548C5A' }}
                       />
-                      <span className="text-sm text-gray-300">{opt.label}</span>
+                      <span style={{ fontSize: 13, color: '#9A9692' }}>{opt.label}</span>
                     </label>
                   ))}
                 </div>
               </Section>
-              <Section title="About">
-                <div className="text-xs text-white/40 py-2 space-y-1">
-                  <p>Subscription plan affects cost display in StatsBar and Observability panel.</p>
-                  <p>Claude Max users see estimated savings instead of API costs.</p>
+              <Section title="ABOUT">
+                <div style={{ fontSize: 12, color: '#595653', padding: '8px 0', lineHeight: 1.6 }}>
+                  <p style={{ margin: '4px 0' }}>Subscription plan affects cost display in StatsBar and Observability panel.</p>
+                  <p style={{ margin: '4px 0' }}>Claude Max users see estimated savings instead of API costs.</p>
                 </div>
               </Section>
             </>
@@ -654,23 +714,35 @@ export function SettingsPanel() {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3 border-t border-white/10">
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 18px', borderTop: '1px solid rgba(89,86,83,0.2)',
+        }}>
           <button
             onClick={handleReset}
-            className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-300 transition-colors"
+            style={{ background: 'transparent', border: 'none', color: '#595653', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}
           >
             Reset to Defaults
           </button>
-          <div className="flex gap-2">
+          <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={closeSettings}
-              className="px-4 py-1.5 text-sm font-medium bg-white/10 hover:bg-white/15 border border-white/15 rounded-md text-gray-300 transition-colors"
+              style={{
+                padding: '6px 14px', fontSize: 13, fontWeight: 500,
+                background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
+                borderRadius: 6, color: '#9A9692', cursor: 'pointer', fontFamily: 'inherit',
+              }}
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
-              className="px-4 py-1.5 text-sm font-medium bg-green-500 hover:bg-green-400 rounded-md text-black transition-colors"
+              className="glow-green"
+              style={{
+                padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                background: '#548C5A', border: 'none',
+                borderRadius: 6, color: '#0E0E0D', cursor: 'pointer', fontFamily: 'inherit',
+              }}
             >
               Save
             </button>

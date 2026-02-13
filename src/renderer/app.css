@@ -222,10 +222,31 @@ html, body, #root {
   align-self: stretch;
   transition: opacity 0.15s ease;
 }
+.drop-indicator-center {
+  position: absolute;
+  inset: 0;
+  background: rgba(84, 140, 90, 0.08);
+  border: 2px solid rgba(84, 140, 90, 0.35);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* ─── Tab close button ─────────────────────────────────────────────── */
+.tab-close {
+  color: #595653;
+  font-size: 12px;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  line-height: 1;
+}
+.slot-tab:hover .tab-close { opacity: 0.5; }
+.tab-close:hover { opacity: 1 !important; color: #c45050 !important; }
 
 /* ─── Panel resize divider (row) ───────────────────────────────────── */
 .panel-divider {
-  height: 8px;
+  height: 5px;
   cursor: row-resize;
   position: relative;
   flex-shrink: 0;
@@ -233,23 +254,21 @@ html, body, #root {
 }
 .panel-divider-line {
   position: absolute;
-  top: 3px;
+  top: 2px;
   left: 0;
   right: 0;
-  height: 2px;
-  background: rgba(89, 86, 83, 0.15);
+  height: 1px;
+  background: rgba(89, 86, 83, 0.2);
   border-radius: 1px;
-  transition: background 0.2s ease, height 0.15s ease, top 0.15s ease;
+  transition: background 0.2s ease;
 }
 .panel-divider:hover .panel-divider-line {
-  background: rgba(84, 140, 90, 0.4);
-  height: 3px;
-  top: 2.5px;
+  background: rgba(84, 140, 90, 0.5);
 }
 
 /* ─── Column resize divider ────────────────────────────────────────── */
 .col-divider {
-  width: 8px;
+  width: 5px;
   cursor: col-resize;
   position: relative;
   flex-shrink: 0;
@@ -257,16 +276,14 @@ html, body, #root {
 }
 .col-divider-line {
   position: absolute;
-  left: 3px;
+  left: 2px;
   top: 0;
   bottom: 0;
-  width: 2px;
-  background: rgba(89, 86, 83, 0.15);
+  width: 1px;
+  background: rgba(89, 86, 83, 0.2);
   border-radius: 1px;
-  transition: background 0.2s ease, width 0.15s ease, left 0.15s ease;
+  transition: background 0.2s ease;
 }
 .col-divider:hover .col-divider-line {
-  background: rgba(84, 140, 90, 0.4);
-  width: 3px;
-  left: 2.5px;
+  background: rgba(84, 140, 90, 0.5);
 }

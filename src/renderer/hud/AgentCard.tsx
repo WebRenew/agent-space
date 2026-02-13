@@ -19,39 +19,43 @@ export function AgentCard() {
         : `${uptime}s`
 
   return (
-    <div className="absolute left-4 bottom-4 w-80 bg-black/80 backdrop-blur-md rounded-xl border border-white/15 p-4 text-white pointer-events-auto">
-      <div className="flex items-start justify-between mb-3">
+    <div
+      className="glass-panel"
+      style={{
+        position: 'absolute', left: 16, bottom: 16, width: 300,
+        borderRadius: 10, padding: 14, pointerEvents: 'auto',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'start', justifyContent: 'space-between', marginBottom: 10 }}>
         <div>
-          <div className="flex items-center gap-2">
-            <div
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: color }}
-            />
-            <h3 className="font-semibold text-base">{agent.name}</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: color }} />
+            <h3 style={{ fontWeight: 600, fontSize: 15, color: '#9A9692', margin: 0 }}>{agent.name}</h3>
           </div>
-          <span className="text-xs text-white/50 uppercase tracking-wider">
+          <span style={{ fontSize: 10, color: '#74747C', fontWeight: 600, letterSpacing: 1 }}>
             {agent.agent_type}
           </span>
         </div>
         <button
           onClick={() => selectAgent(null)}
-          className="text-white/40 hover:text-white transition-colors text-lg leading-none cursor-pointer"
+          style={{ background: 'transparent', border: 'none', color: '#595653', fontSize: 18, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
         >
           x
         </button>
       </div>
 
       <div
-        className="inline-flex px-2 py-0.5 rounded text-xs font-medium mb-3"
         style={{
+          display: 'inline-flex', padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 500,
+          marginBottom: 10,
           backgroundColor: statusColor(agent.status) + '22',
-          color: statusColor(agent.status)
+          color: statusColor(agent.status),
         }}
       >
         {STATUS_LABELS[agent.status]}
       </div>
 
-      <div className="space-y-2 text-sm">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
         <Row label="Task" value={agent.currentTask} />
         <Row label="Model" value={agent.model} />
         <Row label="Tokens In" value={agent.tokens_input.toLocaleString()} />
@@ -72,9 +76,9 @@ export function AgentCard() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between">
-      <span className="text-white/50">{label}</span>
-      <span className="font-mono text-white/90 text-right max-w-[60%] truncate">
+    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <span style={{ color: '#74747C' }}>{label}</span>
+      <span style={{ fontFamily: 'inherit', color: '#9A9692', textAlign: 'right', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {value}
       </span>
     </div>
@@ -83,19 +87,12 @@ function Row({ label, value }: { label: string; value: string }) {
 
 function statusColor(status: string): string {
   switch (status) {
-    case 'streaming':
-      return '#60a5fa'
-    case 'thinking':
-      return '#c084fc'
-    case 'tool_calling':
-      return '#fbbf24'
-    case 'error':
-      return '#ef4444'
-    case 'done':
-      return '#4ade80'
-    case 'waiting':
-      return '#9ca3af'
-    default:
-      return '#6b7280'
+    case 'streaming': return '#d4a040'
+    case 'thinking': return '#c87830'
+    case 'tool_calling': return '#d4a040'
+    case 'error': return '#c45050'
+    case 'done': return '#548C5A'
+    case 'waiting': return '#74747C'
+    default: return '#595653'
   }
 }

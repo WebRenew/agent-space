@@ -8,40 +8,35 @@ interface Props {
 
 function statusColor(status: AgentStatus): string {
   switch (status) {
-    case 'streaming': return '#60a5fa'
-    case 'thinking': return '#c084fc'
-    case 'tool_calling': return '#fbbf24'
-    case 'error': return '#ef4444'
-    case 'done': return '#4ade80'
-    case 'waiting': return '#9ca3af'
-    default: return '#6b7280'
+    case 'streaming': return '#d4a040'
+    case 'thinking': return '#c87830'
+    case 'tool_calling': return '#d4a040'
+    case 'error': return '#c45050'
+    case 'done': return '#548C5A'
+    case 'waiting': return '#74747C'
+    default: return '#595653'
   }
 }
 
 function formatUptime(seconds: number): string {
-  if (seconds >= 3600) {
-    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
-  }
-  if (seconds >= 60) {
-    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-  }
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
   return `${seconds}s`
 }
 
 function MetricCard({ label, value, sparkline, color }: {
-  label: string
-  value: string
-  sparkline: number[]
-  color: string
+  label: string; value: string; sparkline: number[]; color: string
 }) {
   return (
-    <div className="bg-white/5 rounded-lg p-4 border border-white/10">
-      <div className="text-xs text-white/40 uppercase tracking-wider mb-1">{label}</div>
-      <div className="text-2xl font-mono font-semibold" style={{ color }}>
+    <div className="glass-panel" style={{ borderRadius: 6, padding: 14 }}>
+      <div style={{ fontSize: 10, color: '#74747C', fontWeight: 600, letterSpacing: 1, marginBottom: 4 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 22, fontFamily: 'inherit', fontWeight: 600, color }}>
         {value}
       </div>
       {sparkline.length > 1 && (
-        <div className="mt-2 h-8">
+        <div style={{ marginTop: 8, height: 28 }}>
           <Sparkline data={sparkline} color={color} />
         </div>
       )}
@@ -51,57 +46,47 @@ function MetricCard({ label, value, sparkline, color }: {
 
 function StatBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-white/5 rounded-lg p-3 border border-white/10">
-      <div className="text-xs text-white/40 uppercase tracking-wider mb-1">{label}</div>
-      <div className="text-lg font-mono font-semibold text-white/90">{value}</div>
+    <div className="glass-panel" style={{ borderRadius: 6, padding: 10 }}>
+      <div style={{ fontSize: 10, color: '#74747C', fontWeight: 600, letterSpacing: 1, marginBottom: 4 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 16, fontFamily: 'inherit', fontWeight: 600, color: '#9A9692' }}>
+        {value}
+      </div>
     </div>
   )
 }
 
 export function AgentTokenDetail({ agent }: Props) {
   const uptime = Math.floor((Date.now() - agent.started_at) / 1000)
-
   const inputSeries = agent.sessionStats.tokenHistory.map((s) => s.tokens_input)
   const outputSeries = agent.sessionStats.tokenHistory.map((s) => s.tokens_output)
 
   return (
-    <div className="flex-1 p-5 overflow-y-auto">
+    <div style={{ flex: 1, padding: 18, overflowY: 'auto' }}>
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div
-          className="w-3 h-3 rounded-full"
-          style={{ backgroundColor: statusColor(agent.status) }}
-        />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: statusColor(agent.status) }} />
         <div>
-          <h2 className="text-lg font-semibold">{agent.name}</h2>
-          <span className="text-xs text-white/40">{agent.model || 'detecting...'}</span>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#9A9692' }}>{agent.name}</div>
+          <span style={{ fontSize: 11, color: '#595653' }}>{agent.model || 'detecting...'}</span>
         </div>
       </div>
 
       {/* Token metrics */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <MetricCard
-          label="Tokens In"
-          value={agent.tokens_input.toLocaleString()}
-          sparkline={inputSeries}
-          color="#60a5fa"
-        />
-        <MetricCard
-          label="Tokens Out"
-          value={agent.tokens_output.toLocaleString()}
-          sparkline={outputSeries}
-          color="#4ade80"
-        />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+        <MetricCard label="TOKENS IN" value={agent.tokens_input.toLocaleString()} sparkline={inputSeries} color="#d4a040" />
+        <MetricCard label="TOKENS OUT" value={agent.tokens_output.toLocaleString()} sparkline={outputSeries} color="#548C5A" />
       </div>
 
-      {/* Additional stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <StatBox label="Files Modified" value={String(agent.files_modified)} />
-        <StatBox label="Commits" value={String(agent.commitCount)} />
-        <StatBox label="Uptime" value={formatUptime(uptime)} />
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 18 }}>
+        <StatBox label="FILES" value={String(agent.files_modified)} />
+        <StatBox label="COMMITS" value={String(agent.commitCount)} />
+        <StatBox label="UPTIME" value={formatUptime(uptime)} />
       </div>
 
-      {/* Cost breakdown by model */}
+      {/* Cost breakdown */}
       <CostBreakdown tokensByModel={agent.sessionStats.tokensByModel} />
     </div>
   )

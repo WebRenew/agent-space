@@ -3,6 +3,8 @@ import path from 'path'
 import { setupTerminalHandlers, cleanupTerminals } from './terminal'
 import { setupSettingsHandlers, createApplicationMenu } from './settings'
 import { setupClaudeSessionHandlers, cleanupClaudeSessions } from './claude-session'
+import { setupFilesystemHandlers } from './filesystem'
+import { setupLspHandlers, cleanupLspServers } from './lsp-manager'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -28,6 +30,8 @@ function createWindow(): void {
   setupTerminalHandlers(mainWindow)
   setupClaudeSessionHandlers(mainWindow)
   setupSettingsHandlers()
+  setupFilesystemHandlers(mainWindow)
+  setupLspHandlers(mainWindow)
   createApplicationMenu(mainWindow)
 
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -50,6 +54,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   cleanupTerminals()
   cleanupClaudeSessions()
+  cleanupLspServers()
 })
 
 app.on('window-all-closed', () => {

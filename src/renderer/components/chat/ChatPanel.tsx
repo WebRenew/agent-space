@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { ChatMessage, ClaudeEvent } from '../../types'
 import { randomAppearance } from '../../types'
 import { useAgentStore } from '../../store/agents'
@@ -14,11 +14,37 @@ function nextMessageId(): string {
   return `msg-${++chatMessageCounter}`
 }
 
+/** Orchid-style typing indicator with cherry blossom */
+function TypingIndicator() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 0 8px 8px' }}>
+      <span style={{ fontSize: 14 }}>👾</span>
+      <span className="glow-amber" style={{ color: '#d4a040', fontWeight: 600, fontSize: 13 }}>
+        claude
+      </span>
+      <div style={{ display: 'flex', gap: 3, marginLeft: 8 }}>
+        <span
+          className="typing-dot"
+          style={{ width: 4, height: 4, borderRadius: '50%', background: '#74747C', display: 'block' }}
+        />
+        <span
+          className="typing-dot"
+          style={{ width: 4, height: 4, borderRadius: '50%', background: '#74747C', display: 'block' }}
+        />
+        <span
+          className="typing-dot"
+          style={{ width: 4, height: 4, borderRadius: '50%', background: '#74747C', display: 'block' }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [status, setStatus] = useState<SessionStatus>('idle')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
   const agentIdRef = useRef<string | null>(null)
 
   const addAgent = useAgentStore((s) => s.addAgent)
@@ -29,7 +55,7 @@ export function ChatPanel() {
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   // Handle incoming Claude events
@@ -41,7 +67,6 @@ export function ChatPanel() {
 
       switch (event.type) {
         case 'init': {
-          // Session started successfully
           if (agentId) {
             updateAgent(agentId, { status: 'thinking' })
           }
@@ -81,7 +106,6 @@ export function ChatPanel() {
         case 'thinking': {
           const data = event.data as { thinking: string }
           setMessages((prev) => {
-            // Replace existing thinking message
             const withoutThinking = prev.filter((m) => m.role !== 'thinking')
             return [
               ...withoutThinking,
@@ -263,7 +287,7 @@ export function ChatPanel() {
         files_modified: 0,
         started_at: Date.now(),
         deskIndex,
-        terminalId: agentId, // Use agent ID as terminal ID for chat agents
+        terminalId: agentId,
         isClaudeRunning: true,
         appearance: randomAppearance(),
         commitCount: 0,
@@ -322,54 +346,49 @@ export function ChatPanel() {
     }
   }, [sessionId, updateAgent])
 
-  const handleNewChat = useCallback(() => {
-    setMessages([])
-    setSessionId(null)
-    setStatus('idle')
-    agentIdRef.current = null
-  }, [])
-
   const isRunning = status === 'running'
 
-  return (
-    <div className="flex flex-col h-full bg-[#16162a] text-white">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-white/80">Chat</span>
-          {status !== 'idle' && (
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                isRunning
-                  ? 'bg-blue-500/20 text-blue-300'
-                  : status === 'done'
-                    ? 'bg-green-500/20 text-green-300'
-                    : 'bg-red-500/20 text-red-300'
-              }`}
-            >
-              {isRunning ? 'Running' : status === 'done' ? 'Done' : 'Error'}
-            </span>
-          )}
-        </div>
-        {messages.length > 0 && !isRunning && (
-          <button
-            onClick={handleNewChat}
-            className="text-xs text-white/40 hover:text-white/70 transition-colors"
-          >
-            New Chat
-          </button>
-        )}
-      </div>
+  // ── Resizable input area ─────────────────────────────────────────
+  const [inputHeight, setInputHeight] = useState(100)
+  const isDraggingDivider = useRef(false)
+  const lastPointerY = useRef(0)
 
+  const handleDividerPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    isDraggingDivider.current = true
+    lastPointerY.current = e.clientY
+    ;(e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId)
+  }, [])
+
+  const handleDividerPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isDraggingDivider.current) return
+    const delta = lastPointerY.current - e.clientY
+    lastPointerY.current = e.clientY
+    setInputHeight((prev) => Math.max(60, Math.min(400, prev + delta)))
+  }, [])
+
+  const handleDividerPointerUp = useCallback(() => {
+    isDraggingDivider.current = false
+  }, [])
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto py-3 min-h-0">
+      <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-white/30 gap-2">
-            <div className="text-2xl">💬</div>
-            <div className="text-sm">Ask Claude anything</div>
-            <div className="text-xs text-white/20">
-              Powered by Claude Code CLI
-            </div>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 24 }}>👾</span>
+            <span style={{ color: '#74747C', fontSize: 13 }}>Ask Claude anything</span>
+            <span style={{ color: '#595653', fontSize: 11 }}>Powered by Claude Code CLI</span>
           </div>
         ) : (
           <>
@@ -377,28 +396,47 @@ export function ChatPanel() {
               <ChatMessageBubble key={msg.id} message={msg} />
             ))}
             {isRunning && messages[messages.length - 1]?.role !== 'thinking' && (
-              <div className="px-4 py-2">
-                <div className="flex items-center gap-2 text-xs text-white/30">
-                  <span className="flex gap-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400/60 animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400/60 animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400/60 animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </span>
-                  <span>Claude is working...</span>
-                </div>
-              </div>
+              <TypingIndicator />
             )}
-            <div ref={messagesEndRef} />
+            <div ref={chatEndRef} />
           </>
         )}
       </div>
 
-      {/* Input */}
-      <ChatInput
-        onSend={handleSend}
-        isRunning={isRunning}
-        onStop={handleStop}
-      />
+      {/* Draggable divider */}
+      <div
+        onPointerDown={handleDividerPointerDown}
+        onPointerMove={handleDividerPointerMove}
+        onPointerUp={handleDividerPointerUp}
+        style={{
+          height: 5,
+          cursor: 'row-resize',
+          flexShrink: 0,
+          position: 'relative',
+          touchAction: 'none',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            top: 2,
+            left: 0,
+            right: 0,
+            height: 1,
+            background: 'rgba(89, 86, 83, 0.3)',
+            transition: 'background 0.15s ease',
+          }}
+        />
+      </div>
+
+      {/* Input — resizable */}
+      <div style={{ height: inputHeight, flexShrink: 0, overflow: 'hidden' }}>
+        <ChatInput
+          onSend={handleSend}
+          isRunning={isRunning}
+          onStop={handleStop}
+        />
+      </div>
     </div>
   )
 }

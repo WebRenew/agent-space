@@ -1,10 +1,14 @@
+import { useMemo } from 'react'
 import { useAgentStore } from './agents'
+import type { Agent } from '../types'
 
 /** Total tokens across all agents, broken down by model */
-export function useAggregateTokensByModel() {
-  return useAgentStore((s) => {
+export function useAggregateTokensByModel(): Record<string, { input: number; output: number }> {
+  const agents = useAgentStore((s) => s.agents)
+
+  return useMemo(() => {
     const result: Record<string, { input: number; output: number }> = {}
-    for (const agent of s.agents) {
+    for (const agent of agents) {
       for (const [model, tokens] of Object.entries(agent.sessionStats.tokensByModel)) {
         const prev = result[model] ?? { input: 0, output: 0 }
         result[model] = {
@@ -14,15 +18,19 @@ export function useAggregateTokensByModel() {
       }
     }
     return result
-  })
+  }, [agents])
 }
 
 /** Sorted agents by total token usage (descending) */
-export function useAgentsByTokenUsage() {
-  return useAgentStore((s) =>
-    [...s.agents].sort(
-      (a, b) =>
-        b.tokens_input + b.tokens_output - (a.tokens_input + a.tokens_output)
-    )
+export function useAgentsByTokenUsage(): Agent[] {
+  const agents = useAgentStore((s) => s.agents)
+
+  return useMemo(
+    () =>
+      [...agents].sort(
+        (a, b) =>
+          b.tokens_input + b.tokens_output - (a.tokens_input + a.tokens_output)
+      ),
+    [agents]
   )
 }

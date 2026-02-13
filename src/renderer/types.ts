@@ -95,6 +95,37 @@ export const SUBSCRIPTION_OPTIONS: Record<SubscriptionType, { label: string; mon
   max_20x: { label: 'Claude Max 20x ($200/mo)', monthlyCost: 200 },
 }
 
+export type HairStyle = 'short' | 'long' | 'ponytail' | 'buzz' | 'mohawk'
+
+export type CursorStyle = 'block' | 'underline' | 'bar'
+
+export interface AppSettings {
+  general: {
+    startingDirectory: 'home' | 'custom'
+    customDirectory: string
+    shell: 'default' | 'custom'
+    customShell: string
+  }
+  appearance: {
+    fontFamily: string
+    fontSize: number
+    cursorStyle: CursorStyle
+    cursorBlink: boolean
+    terminalTheme: TerminalThemeName
+  }
+  terminal: {
+    scrollbackLines: number
+    copyOnSelect: boolean
+    optionAsMeta: boolean
+    visualBell: boolean
+    audibleBell: boolean
+  }
+  subscription: SubscriptionConfig
+  scopes: Scope[]
+  defaultScope: Scope
+  soundsEnabled: boolean
+}
+
 // ── Claude Chat Session Types ──────────────────────────────────────────
 
 export interface ClaudeSystemInit {

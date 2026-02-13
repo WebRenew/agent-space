@@ -1,17 +1,20 @@
-import { useState, useCallback, useRef, useEffect, type ComponentType } from 'react'
+import { useState, useCallback, useRef, useEffect, Fragment, type ComponentType } from 'react'
 import { RowDivider } from './RowDivider'
 import { ColDivider } from './ColDivider'
 import {
   type PanelId,
-  type LayoutRow,
+  type Layout,
   type DropZone,
+  ALL_PANELS,
+  PANEL_LABELS,
   PANEL_MIN_HEIGHT,
   DEFAULT_LAYOUT,
-  DEFAULT_WIDTH_RATIOS,
   getDropZone,
-  computeWidthRatios,
+  deepCloneLayout,
   removePanelFromLayout,
   insertPanelAtDropZone,
+  clampDropZone,
+  findAllPanelsInLayout,
 } from './layout-engine'
 import { ScenePanel } from './panels/ScenePanel'
 import { ChatPanelWrapper } from './panels/ChatPanelWrapper'
@@ -21,28 +24,78 @@ import { AgentsPanel } from './panels/AgentsPanel'
 import { MemoryGraphPanel } from './panels/MemoryGraphPanel'
 import { RecentMemoriesPanel } from './panels/RecentMemoriesPanel'
 import { TokensPanel } from './panels/TokensPanel'
+import { FileExplorerPanel } from './panels/FileExplorerPanel'
+import { FileSearchPanel } from './panels/FileSearchPanel'
+import { FileEditorPanel } from './panels/FileEditorPanel'
 import { useAgentStore } from '../../store/agents'
+import { useSettingsStore } from '../../store/settings'
+import { useWorkspaceStore } from '../../store/workspace'
+import {
+  useHotkeys,
+  type HotkeyBinding,
+  SHORTCUTS,
+  PANEL_SHORTCUT_ORDER,
+  formatShortcut,
+} from '../../hooks/useHotkeys'
 
-// ── Panel Registry ─────────────────────────────────────────────────
+/** Shortcut label per panel, e.g. "⌘1" */
+const PANEL_SHORTCUT_LABELS: Partial<Record<PanelId, string>> = {
+  ...Object.fromEntries(
+    PANEL_SHORTCUT_ORDER.map((id, idx) => [id, formatShortcut({ key: String(idx + 1), metaOrCtrl: true })])
+  ),
+  fileSearch: SHORTCUTS.fileSearch.label,
+  fileExplorer: SHORTCUTS.fileExplorer.label,
+}
+
+// ── File open dispatcher ─────────────────────────────────────────────
+
+function dispatchFileOpen(filePath: string): void {
+  window.dispatchEvent(new CustomEvent('file:open', { detail: filePath }))
+}
+
+function FileExplorerWrapper() {
+  return <FileExplorerPanel onOpenFile={dispatchFileOpen} />
+}
+
+function FileSearchWrapper() {
+  return <FileSearchPanel onOpenFile={dispatchFileOpen} />
+}
+
+// ── Panel Registry ──────────────────────────────────────────────────
 
 const PANEL_COMPONENTS: Record<PanelId, ComponentType> = {
+  chat: ChatPanelWrapper,
+  terminal: TerminalPanelWrapper,
+  tokens: TokensPanel,
   scene3d: ScenePanel,
   activity: ActivityPanel,
   memoryGraph: MemoryGraphPanel,
   agents: AgentsPanel,
   recentMemories: RecentMemoriesPanel,
-  terminal: TerminalPanelWrapper,
-  tokens: TokensPanel,
+  fileExplorer: FileExplorerWrapper,
+  fileSearch: FileSearchWrapper,
+  filePreview: FileEditorPanel,
 }
 
-// ── Top Nav Bar ────────────────────────────────────────────────────
+// ── Top Nav ─────────────────────────────────────────────────────────
 
-function TopNav() {
+function TopNav({
+  visiblePanels,
+  onTogglePanel,
+}: {
+  visiblePanels: Set<PanelId>
+  onTogglePanel: (id: PanelId) => void
+}) {
   const agentCount = useAgentStore((s) => s.agents.length)
   const eventCount = useAgentStore((s) => s.events.length)
+  const openSettings = useSettingsStore((s) => s.openSettings)
+  const workspaceRoot = useWorkspaceStore((s) => s.rootPath)
+  const workspaceName = workspaceRoot?.split('/').pop() ?? null
   const [timeStr, setTimeStr] = useState(() =>
     new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
   )
+  const [showViewMenu, setShowViewMenu] = useState(false)
+  const viewMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const tick = setInterval(() => {
@@ -51,31 +104,89 @@ function TopNav() {
     return () => clearInterval(tick)
   }, [])
 
+  // Close View menu on outside click
+  useEffect(() => {
+    if (!showViewMenu) return
+    const handler = (e: MouseEvent) => {
+      if (viewMenuRef.current && !viewMenuRef.current.contains(e.target as Node)) {
+        setShowViewMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showViewMenu])
+
   return (
     <header
       className="glass-panel"
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        height: 36,
-        padding: '0 16px',
-        borderTop: 'none',
-        borderLeft: 'none',
-        borderRight: 'none',
-        borderBottom: '1px solid rgba(89, 86, 83, 0.2)',
-        flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        height: 36, padding: '0 16px',
+        borderTop: 'none', borderLeft: 'none', borderRight: 'none',
+        borderBottom: '1px solid rgba(89, 86, 83, 0.2)', flexShrink: 0,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         <span style={{ fontSize: 16, letterSpacing: 1 }}>&#x2B22;</span>
+        {workspaceName && (
+          <span style={{ color: '#9A9692', fontSize: 12, fontWeight: 500 }}>{workspaceName}</span>
+        )}
         <span style={{ color: '#595653', fontSize: 13 }}>|</span>
         <nav style={{ display: 'flex', gap: 14 }}>
-          {['Office', 'Chat', 'Terminal', 'Tokens'].map((item) => (
-            <span key={item} className="nav-item" style={{ color: '#74747C', fontSize: 13 }}>
-              {item}
-            </span>
+          {['File', 'Edit'].map((item) => (
+            <span key={item} className="nav-item" style={{ color: '#74747C', fontSize: 13 }}>{item}</span>
           ))}
+          {/* View dropdown */}
+          <div ref={viewMenuRef} style={{ position: 'relative', zIndex: 9999 }}>
+            <span
+              className="nav-item"
+              onClick={() => setShowViewMenu((v) => !v)}
+              style={{ color: '#74747C', fontSize: 13 }}
+            >
+              View
+            </span>
+            {showViewMenu && (
+              <>
+                {/* Invisible backdrop to block clicks on elements behind the menu */}
+                <div
+                  style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+                  onClick={() => setShowViewMenu(false)}
+                />
+                <div
+                  style={{
+                    position: 'absolute', top: 30, left: -8, zIndex: 9999,
+                    minWidth: 190, padding: '4px 0', borderRadius: 6,
+                    background: '#1A1A19', border: '1px solid rgba(89,86,83,0.3)',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {ALL_PANELS.map((id) => (
+                    <div
+                      key={id}
+                      onClick={() => onTogglePanel(id)}
+                      className="hover-row"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                      }}
+                    >
+                      <span style={{ color: visiblePanels.has(id) ? '#548C5A' : '#595653', fontWeight: 600, width: 14 }}>
+                        {visiblePanels.has(id) ? '✓' : ''}
+                      </span>
+                      <span style={{ color: '#9A9692', flex: 1 }}>{PANEL_LABELS[id]}</span>
+                      <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                        {PANEL_SHORTCUT_LABELS[id]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <span className="nav-item" onClick={openSettings} style={{ color: '#74747C', fontSize: 13 }} title={`Settings (${SHORTCUTS.openSettings.label})`}>
+            Settings
+          </span>
         </nav>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#74747C', fontSize: 13 }}>
@@ -91,281 +202,521 @@ function TopNav() {
   )
 }
 
-// ── Chat Left Panel ────────────────────────────────────────────────
+// ── Slot Tab Bar ────────────────────────────────────────────────────
 
-function ChatLeftPanel() {
-  const [activeTab, setActiveTab] = useState('CHAT')
-  const tabs = ['CHAT', 'TERMINAL', 'TOKENS']
-
+function SlotTabBar({
+  panels,
+  activeTab,
+  onSelect,
+  onHide,
+  onDragStart,
+}: {
+  panels: PanelId[]
+  activeTab: PanelId
+  onSelect: (id: PanelId) => void
+  onHide: (id: PanelId) => void
+  onDragStart: (e: React.DragEvent, id: PanelId) => void
+}) {
   return (
-    <div
-      style={{
-        flex: '0 0 55%',
-        display: 'flex',
-        flexDirection: 'column',
-        borderRight: '1px solid rgba(89, 86, 83, 0.2)',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Tab bar */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 0,
-          borderBottom: '1px solid rgba(89, 86, 83, 0.2)',
-          flexShrink: 0,
-        }}
-      >
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className="nav-item"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: activeTab === tab ? '#548C5A' : '#595653',
-              fontSize: 12,
-              fontWeight: 600,
-              padding: '8px 16px',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              letterSpacing: 1,
-              borderBottom: activeTab === tab ? '2px solid #548C5A' : '2px solid transparent',
-              textShadow: activeTab === tab ? '0 0 8px rgba(84, 140, 90, 0.4)' : 'none',
-            }}
-          >
-            {tab}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
+    <div style={{ display: 'flex', borderBottom: '1px solid rgba(89,86,83,0.2)', flexShrink: 0, minHeight: 30 }}>
+      {panels.map((id) => (
         <div
-          className="pulse-amber"
+          key={id}
+          draggable
+          onDragStart={(e) => onDragStart(e, id)}
+          onClick={() => onSelect(id)}
+          className="slot-tab"
           style={{
-            width: 10,
-            height: 10,
-            background: '#d4a040',
-            borderRadius: '50%',
-            alignSelf: 'center',
-            marginRight: 12,
+            padding: '6px 12px', fontSize: 12, fontWeight: 600, letterSpacing: 1, cursor: 'pointer',
+            color: id === activeTab ? '#548C5A' : '#595653',
+            borderBottom: id === activeTab ? '2px solid #548C5A' : '2px solid transparent',
+            textShadow: id === activeTab ? '0 0 8px rgba(84,140,90,0.4)' : 'none',
+            display: 'flex', alignItems: 'center', gap: 8, userSelect: 'none',
           }}
-        />
-      </div>
-
-      {/* Content area */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: activeTab === 'CHAT' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-          <ChatPanelWrapper />
+        >
+          {PANEL_LABELS[id]}
+          <span
+            className="tab-close"
+            onClick={(e) => { e.stopPropagation(); onHide(id) }}
+          >
+            ×
+          </span>
         </div>
-        <div style={{ display: activeTab === 'TERMINAL' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-          <TerminalPanelWrapper />
-        </div>
-        <div style={{ display: activeTab === 'TOKENS' ? 'flex' : 'none', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-          <TokensPanel />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Right Panel: Tiling Layout ─────────────────────────────────────
-
-function RightTilingPanel() {
-  const [layout, setLayout] = useState<LayoutRow[]>(DEFAULT_LAYOUT)
-  const [widthRatios, setWidthRatios] = useState<Record<string, number[]>>(DEFAULT_WIDTH_RATIOS)
-  const [draggedPanel, setDraggedPanel] = useState<PanelId | null>(null)
-  const [dropZone, setDropZone] = useState<DropZone | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  // Row resize
-  const handleRowResize = useCallback((dividerIndex: number, deltaY: number) => {
-    setLayout((prev) => {
-      const next = [...prev]
-      const topH = next[dividerIndex].height + deltaY
-      const bottomH = next[dividerIndex + 1].height - deltaY
-      if (topH < PANEL_MIN_HEIGHT || bottomH < PANEL_MIN_HEIGHT) return prev
-      next[dividerIndex] = { ...next[dividerIndex], height: topH }
-      next[dividerIndex + 1] = { ...next[dividerIndex + 1], height: bottomH }
-      return next
-    })
-  }, [])
-
-  // Column resize
-  const handleColResize = useCallback((rowIndex: number, colDividerIndex: number, deltaX: number) => {
-    setWidthRatios((prev) => {
-      const key = String(rowIndex)
-      const ratios = [...(prev[key] ?? [])]
-      if (colDividerIndex >= ratios.length - 1) return prev
-
-      const containerWidth = containerRef.current?.clientWidth ?? 600
-      const deltaRatio = deltaX / containerWidth
-      const left = ratios[colDividerIndex] + deltaRatio
-      const right = ratios[colDividerIndex + 1] - deltaRatio
-      if (left < 0.15 || right < 0.15) return prev
-
-      ratios[colDividerIndex] = left
-      ratios[colDividerIndex + 1] = right
-      return { ...prev, [key]: ratios }
-    })
-  }, [])
-
-  // Drag start
-  const handlePanelDragStart = useCallback((e: React.DragEvent, panelId: PanelId) => {
-    setDraggedPanel(panelId)
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', panelId)
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '0.4'
-    }
-  }, [])
-
-  // Drag end
-  const handlePanelDragEnd = useCallback((e: React.DragEvent) => {
-    if (e.currentTarget instanceof HTMLElement) {
-      e.currentTarget.style.opacity = '1'
-    }
-    setDraggedPanel(null)
-    setDropZone(null)
-  }, [])
-
-  // Drag over
-  const handlePanelDragOver = useCallback((e: React.DragEvent, rowIndex: number, panelCount: number, panelIndex?: number) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    const zone = getDropZone(e, rowIndex, panelCount, panelIndex)
-    setDropZone(zone)
-  }, [])
-
-  // Drop
-  const handlePanelDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    if (!draggedPanel || !dropZone) return
-
-    const cleaned = removePanelFromLayout(layout, draggedPanel)
-
-    // Adjust target row index if source row was removed
-    let targetRowIndex = Math.min(dropZone.rowIndex, cleaned.length - 1)
-
-    const newLayout = insertPanelAtDropZone(cleaned, draggedPanel, {
-      ...dropZone,
-      rowIndex: targetRowIndex,
-    })
-    const newRatios = computeWidthRatios(newLayout, widthRatios)
-    setLayout(newLayout)
-    setWidthRatios(newRatios)
-    setDraggedPanel(null)
-    setDropZone(null)
-  }, [draggedPanel, dropZone, layout, widthRatios])
-
-  // Drop indicator rendering
-  const renderDropIndicator = (rowIndex: number, position: 'top' | 'bottom' | 'left' | 'right', panelIndex?: number) => {
-    if (!dropZone || !draggedPanel) return null
-    if (dropZone.rowIndex !== rowIndex || dropZone.position !== position) return null
-    if ((position === 'left' || position === 'right') && dropZone.panelIndex !== panelIndex) return null
-
-    if (position === 'top' || position === 'bottom') {
-      return <div className="drop-indicator-h" />
-    }
-    return <div className="drop-indicator-v" />
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      className="right-panel-container"
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        overflow: 'auto',
-      }}
-    >
-      {layout.map((row, rowIndex) => {
-        const ratios = widthRatios[String(rowIndex)] ?? row.panels.map(() => 1 / row.panels.length)
-
-        return (
-          <div key={row.panels.join('-')}>
-            {renderDropIndicator(rowIndex, 'top')}
-
-            <div
-              style={{
-                display: 'flex',
-                height: row.height,
-                flexShrink: 0,
-                borderBottom: '1px solid rgba(89, 86, 83, 0.2)',
-              }}
-            >
-              {row.panels.map((panelId, panelIndex) => {
-                const PanelComponent = PANEL_COMPONENTS[panelId]
-                const isBeingDragged = draggedPanel === panelId
-
-                return (
-                  <div key={panelId} style={{ display: 'flex', flex: `0 0 ${(ratios[panelIndex] ?? (1 / row.panels.length)) * 100}%`, minWidth: 0 }}>
-                    {panelIndex === 0 && renderDropIndicator(rowIndex, 'left', panelIndex)}
-
-                    <div
-                      draggable
-                      onDragStart={(e) => handlePanelDragStart(e, panelId)}
-                      onDragEnd={handlePanelDragEnd}
-                      onDragOver={(e) => handlePanelDragOver(e, rowIndex, row.panels.length, panelIndex)}
-                      onDrop={handlePanelDrop}
-                      className={`right-panel-section ${isBeingDragged ? 'dragging' : ''}`}
-                      style={{
-                        flex: 1,
-                        overflow: 'auto',
-                        position: 'relative',
-                      }}
-                    >
-                      <div className="drag-handle">
-                        <span className="drag-handle-dots">&#x2801;&#x2801;</span>
-                      </div>
-                      <PanelComponent />
-                    </div>
-
-                    {renderDropIndicator(rowIndex, 'right', panelIndex)}
-
-                    {panelIndex < row.panels.length - 1 && (
-                      <ColDivider
-                        onDrag={(deltaX) => handleColResize(rowIndex, panelIndex, deltaX)}
-                      />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            {renderDropIndicator(rowIndex, 'bottom')}
-
-            {rowIndex < layout.length - 1 && (
-              <RowDivider onDrag={(deltaY) => handleRowResize(rowIndex, deltaY)} />
-            )}
-          </div>
-        )
-      })}
-
-      {/* Empty spacer — absorbs remaining height so panels don't stretch */}
+      ))}
+      <div style={{ flex: 1 }} />
       <div
-        style={{
-          flex: '1 1 0',
-          minHeight: 0,
-          borderTop: '1px solid rgba(89, 86, 83, 0.15)',
-          background: 'transparent',
-        }}
+        className="pulse-amber"
+        style={{ width: 8, height: 8, background: '#d4a040', borderRadius: '50%', alignSelf: 'center', marginRight: 10 }}
       />
     </div>
   )
 }
 
-// ── Main Layout ────────────────────────────────────────────────────
+// ── Drop Overlay ────────────────────────────────────────────────────
+
+function DropOverlay({
+  zone, colIdx, rowIdx, slotIdx,
+}: {
+  zone: DropZone | null; colIdx: number; rowIdx: number; slotIdx: number
+}) {
+  if (!zone || zone.columnIndex !== colIdx || zone.rowIndex !== rowIdx || zone.slotIndex !== slotIdx) return null
+  if (zone.position === 'center') return <div className="drop-indicator-center" />
+  const base: React.CSSProperties = { position: 'absolute', zIndex: 20, pointerEvents: 'none' }
+  if (zone.position === 'top') return <div className="drop-indicator-h" style={{ ...base, top: 0, left: 0, right: 0 }} />
+  if (zone.position === 'bottom') return <div className="drop-indicator-h" style={{ ...base, bottom: 0, left: 0, right: 0 }} />
+  if (zone.position === 'left') return <div className="drop-indicator-v" style={{ ...base, top: 0, bottom: 0, left: 0 }} />
+  if (zone.position === 'right') return <div className="drop-indicator-v" style={{ ...base, top: 0, bottom: 0, right: 0 }} />
+  return null
+}
+
+// ── Main Layout ─────────────────────────────────────────────────────
 
 export function WorkspaceLayout() {
+  const [layout, setLayout] = useState<Layout>(DEFAULT_LAYOUT)
+  const [draggedPanel, setDraggedPanel] = useState<PanelId | null>(null)
+  const [dropZone, setDropZone] = useState<DropZone | null>(null)
+  const [activeTabs, setActiveTabs] = useState<Record<string, PanelId>>({})
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const visiblePanels = findAllPanelsInLayout(layout)
+
+  // ── Active tab helpers ──────────────────────────────────────────
+  const getActiveTab = useCallback(
+    (panels: PanelId[], key: string): PanelId => {
+      const stored = activeTabs[key]
+      return stored && panels.includes(stored) ? stored : panels[0]
+    },
+    [activeTabs]
+  )
+
+  const setActiveTab = useCallback((key: string, panelId: PanelId) => {
+    setActiveTabs((prev) => ({ ...prev, [key]: panelId }))
+  }, [])
+
+  // ── Column resize ──────────────────────────────────────────────
+  const handleColumnResize = useCallback((divIdx: number, deltaX: number) => {
+    setLayout((prev) => {
+      const next = deepCloneLayout(prev)
+      const cw = containerRef.current?.clientWidth ?? 1000
+      const dr = deltaX / cw
+      const left = next[divIdx].width + dr
+      const right = next[divIdx + 1].width - dr
+      if (left < 0.15 || right < 0.15) return prev
+      next[divIdx].width = left
+      next[divIdx + 1].width = right
+      return next
+    })
+  }, [])
+
+  // ── Row resize ─────────────────────────────────────────────────
+  const handleRowResize = useCallback((colIdx: number, divIdx: number, deltaY: number) => {
+    // Capture DOM measurement before setState to avoid querying inside the callback
+    const colEl = containerRef.current?.querySelector<HTMLElement>(`[data-col="${colIdx}"]`)
+    const colHeight = colEl?.clientHeight ?? 0
+
+    setLayout((prev) => {
+      const next = deepCloneLayout(prev)
+      const col = next[colIdx]
+      let topH = col.rows[divIdx].height
+      let bottomH = col.rows[divIdx + 1].height
+
+      // Resolve flex rows (-1) to actual pixel height from DOM
+      if (topH === -1 || bottomH === -1) {
+        if (!colHeight) return prev
+        const dividerCount = col.rows.length - 1
+        const dividerH = 5 // matches CSS .panel-divider height
+        const fixedTotal = col.rows.reduce((sum, r) => sum + (r.height === -1 ? 0 : r.height), 0)
+        const flexHeight = Math.max(PANEL_MIN_HEIGHT, colHeight - fixedTotal - dividerCount * dividerH)
+
+        const flexCount = col.rows.filter((r) => r.height === -1).length
+        if (flexCount === 0) return prev
+        const perFlex = Math.max(PANEL_MIN_HEIGHT, flexHeight / flexCount)
+
+        // Convert all flex rows to fixed pixel heights
+        for (const row of col.rows) {
+          if (row.height === -1) row.height = perFlex
+        }
+        topH = col.rows[divIdx].height
+        bottomH = col.rows[divIdx + 1].height
+      }
+
+      const newTop = topH + deltaY
+      const newBottom = bottomH - deltaY
+      if (newTop < PANEL_MIN_HEIGHT || newBottom < PANEL_MIN_HEIGHT) return prev
+      col.rows[divIdx].height = newTop
+      col.rows[divIdx + 1].height = newBottom
+      return next
+    })
+  }, [])
+
+  // ── Slot resize ────────────────────────────────────────────────
+  const handleSlotResize = useCallback((colIdx: number, rowIdx: number, divIdx: number, deltaX: number) => {
+    setLayout((prev) => {
+      const next = deepCloneLayout(prev)
+      const row = next[colIdx].rows[rowIdx]
+      const cw = containerRef.current?.clientWidth ?? 1000
+      const colW = cw * next[colIdx].width
+      const dr = deltaX / colW
+      const left = row.slotWidths[divIdx] + dr
+      const right = row.slotWidths[divIdx + 1] - dr
+      if (left < 0.15 || right < 0.15) return prev
+      row.slotWidths[divIdx] = left
+      row.slotWidths[divIdx + 1] = right
+      return next
+    })
+  }, [])
+
+  // ── Drag handlers ──────────────────────────────────────────────
+  const handleDragStart = useCallback((e: React.DragEvent, panelId: PanelId) => {
+    setDraggedPanel(panelId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', panelId)
+    if (e.currentTarget instanceof HTMLElement) e.currentTarget.style.opacity = '0.4'
+  }, [])
+
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget instanceof HTMLElement) e.currentTarget.style.opacity = '1'
+    setDraggedPanel(null)
+    setDropZone(null)
+  }, [])
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent, colIdx: number, rowIdx: number, slotIdx: number) => {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      setDropZone(getDropZone(e, colIdx, rowIdx, slotIdx))
+    },
+    []
+  )
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      if (!draggedPanel || !dropZone) return
+      const cleaned = removePanelFromLayout(layout, draggedPanel)
+      if (cleaned.length === 0) {
+        // Edge case: dragging the last panel — just put it back
+        setLayout(DEFAULT_LAYOUT)
+        setDraggedPanel(null)
+        setDropZone(null)
+        return
+      }
+      const clamped = clampDropZone(cleaned, dropZone)
+      const newLayout = insertPanelAtDropZone(cleaned, draggedPanel, clamped)
+      setLayout(newLayout)
+      setDraggedPanel(null)
+      setDropZone(null)
+    },
+    [draggedPanel, dropZone, layout]
+  )
+
+  // ── Hide / Show ────────────────────────────────────────────────
+  const handleHidePanel = useCallback((panelId: PanelId) => {
+    setLayout((prev) => {
+      const next = removePanelFromLayout(prev, panelId)
+      return next.length > 0 ? next : prev // don't allow hiding the last panel
+    })
+  }, [])
+
+  const handleTogglePanel = useCallback((panelId: PanelId) => {
+    if (visiblePanels.has(panelId)) {
+      handleHidePanel(panelId)
+    } else {
+      // Re-show: add to the first column's first slot as a stack member
+      setLayout((prev) => {
+        const result = deepCloneLayout(prev)
+        if (result.length === 0) {
+          return [{ width: 1, rows: [{ slots: [panelId], slotWidths: [1], height: -1 }] }]
+        }
+        const firstRow = result[0].rows[0]
+        if (!firstRow) {
+          result[0].rows.push({ slots: [panelId], slotWidths: [1], height: -1 })
+        } else {
+          const slot = firstRow.slots[0]
+          if (Array.isArray(slot)) {
+            slot.push(panelId)
+          } else if (slot !== undefined) {
+            firstRow.slots[0] = [slot, panelId]
+          }
+        }
+        // Auto-select the newly shown panel
+        setActiveTabs((tabs) => ({ ...tabs, ['0-0-0']: panelId }))
+        return result
+      })
+    }
+  }, [visiblePanels, handleHidePanel])
+
+  // ── Focus a panel by ID ───────────────────────────────────────
+  const focusPanel = useCallback((panelId: PanelId) => {
+    // If the panel isn't visible, show it first
+    if (!findAllPanelsInLayout(layout).has(panelId)) {
+      handleTogglePanel(panelId) // re-shows it
+      return
+    }
+    // Find the slot key containing this panel and activate its tab
+    for (let ci = 0; ci < layout.length; ci++) {
+      for (let ri = 0; ri < layout[ci].rows.length; ri++) {
+        const row = layout[ci].rows[ri]
+        for (let si = 0; si < row.slots.length; si++) {
+          const slot = row.slots[si]
+          const panels = Array.isArray(slot) ? slot : [slot]
+          if (panels.includes(panelId)) {
+            setActiveTabs((prev) => ({ ...prev, [`${ci}-${ri}-${si}`]: panelId }))
+            return
+          }
+        }
+      }
+    }
+  }, [layout, handleTogglePanel])
+
+  // ── Keyboard shortcuts ────────────────────────────────────────
+  const openSettings = useSettingsStore((s) => s.openSettings)
+
+  const hotkeyBindings: HotkeyBinding[] = [
+    // Cmd+1 through Cmd+8: focus panels
+    ...PANEL_SHORTCUT_ORDER.map((panelId, idx) => {
+      const shortcutKey = `focus${panelId.charAt(0).toUpperCase() + panelId.slice(1)}` as keyof typeof SHORTCUTS
+      const def = SHORTCUTS[shortcutKey] ?? {
+        hotkey: { key: String(idx + 1), metaOrCtrl: true },
+        label: `⌘${idx + 1}`,
+      }
+      return {
+        hotkey: def.hotkey,
+        label: def.label,
+        description: def.description,
+        handler: () => focusPanel(panelId as PanelId),
+      }
+    }),
+
+    // Cmd+, — open settings
+    {
+      ...SHORTCUTS.openSettings,
+      handler: () => openSettings(),
+    },
+
+    // Cmd+Shift+N — new terminal (IPC)
+    {
+      ...SHORTCUTS.newTerminal,
+      handler: () => {
+        // Dispatch a custom event the TerminalPanel listens for
+        window.dispatchEvent(new CustomEvent('hotkey:newTerminal'))
+      },
+    },
+
+    // Cmd+Shift+R — reset layout
+    {
+      ...SHORTCUTS.resetLayout,
+      handler: () => {
+        setLayout(DEFAULT_LAYOUT)
+        setActiveTabs({})
+      },
+    },
+
+    // Cmd+W — close/hide active panel (whatever is in the focused slot)
+    {
+      ...SHORTCUTS.closePanel,
+      handler: () => {
+        // Find the first active tab and hide it
+        for (const [key, panelId] of Object.entries(activeTabs)) {
+          if (findAllPanelsInLayout(layout).has(panelId)) {
+            handleHidePanel(panelId)
+            return
+          }
+          void key // lint: key is iterated but unused
+        }
+      },
+    },
+
+    // Cmd+/ — focus chat input
+    {
+      ...SHORTCUTS.focusChatInput,
+      handler: () => {
+        focusPanel('chat')
+        // Give the chat input a tick to render, then focus it
+        setTimeout(() => {
+          const input = document.querySelector<HTMLTextAreaElement>('[data-chat-input]')
+          if (input) input.focus()
+        }, 50)
+      },
+    },
+
+    // Cmd+O — open folder
+    {
+      ...SHORTCUTS.openFolder,
+      handler: () => {
+        void (async () => {
+          try {
+            const selected = await window.electronAPI.fs.openFolderDialog()
+            if (selected) useWorkspaceStore.getState().openFolder(selected)
+          } catch (err) {
+            console.error('[WorkspaceLayout] Open folder failed:', err)
+          }
+        })()
+      },
+    },
+
+    // Cmd+P — file search
+    {
+      ...SHORTCUTS.fileSearch,
+      handler: () => {
+        focusPanel('fileSearch')
+        setTimeout(() => {
+          const input = document.querySelector<HTMLInputElement>('[data-file-search-input]')
+          if (input) input.focus()
+        }, 50)
+      },
+    },
+
+    // Cmd+Shift+E — file explorer
+    {
+      ...SHORTCUTS.fileExplorer,
+      handler: () => focusPanel('fileExplorer'),
+    },
+
+    // Escape — close menus, deselect agent
+    {
+      ...SHORTCUTS.escape,
+      handler: () => {
+        // Close settings if open
+        const settingsStore = useSettingsStore.getState()
+        if (settingsStore.isOpen) {
+          settingsStore.closeSettings()
+          return
+        }
+        // Deselect agent in 3D scene
+        const agentStore = useAgentStore.getState()
+        if (agentStore.selectedAgentId) {
+          agentStore.selectAgent(null)
+        }
+      },
+    },
+  ]
+
+  useHotkeys(hotkeyBindings)
+
+  // ── Electron menu IPC listeners ───────────────────────────────
+  useEffect(() => {
+    const api = window.electronAPI?.settings
+    if (!api) return
+
+    const unsubs: Array<() => void> = []
+
+    if (api.onNewTerminal) {
+      unsubs.push(api.onNewTerminal(() => {
+        window.dispatchEvent(new CustomEvent('hotkey:newTerminal'))
+      }))
+    }
+
+    if (api.onFocusChat) {
+      unsubs.push(api.onFocusChat(() => {
+        focusPanel('chat')
+        setTimeout(() => {
+          const input = document.querySelector<HTMLTextAreaElement>('[data-chat-input]')
+          if (input) input.focus()
+        }, 50)
+      }))
+    }
+
+    if (api.onResetLayout) {
+      unsubs.push(api.onResetLayout(() => {
+        setLayout(DEFAULT_LAYOUT)
+        setActiveTabs({})
+      }))
+    }
+
+    if (api.onFocusPanel) {
+      unsubs.push(api.onFocusPanel((panelId: string) => {
+        focusPanel(panelId as PanelId)
+      }))
+    }
+
+    return () => { unsubs.forEach((fn) => fn()) }
+  }, [focusPanel])
+
+  // ── Render ─────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0E0E0D' }}>
-      <TopNav />
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <ChatLeftPanel />
-        <RightTilingPanel />
+      <TopNav visiblePanels={visiblePanels} onTogglePanel={handleTogglePanel} />
+
+      <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {layout.map((col, colIdx) => (
+          <Fragment key={colIdx}>
+            <div data-col={colIdx} style={{ flex: `0 0 ${col.width * 100}%`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              {col.rows.map((row, rowIdx) => {
+                const isFlex = row.height === -1
+                const isLastRow = rowIdx === col.rows.length - 1
+
+                return (
+                  <Fragment key={rowIdx}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        ...(isFlex
+                          ? { flex: '1 1 0', minHeight: PANEL_MIN_HEIGHT }
+                          : { height: row.height, flexShrink: 0 }),
+                        /* no border — RowDivider handles visual separation on hover */
+                      }}
+                    >
+                      {row.slots.map((slot, slotIdx) => {
+                        const panels = Array.isArray(slot) ? slot : [slot]
+                        const slotKey = `${colIdx}-${rowIdx}-${slotIdx}`
+                        const activePanel = getActiveTab(panels, slotKey)
+
+                        return (
+                          <Fragment key={slotKey}>
+                            <div
+                              onDragOver={(e) => handleDragOver(e, colIdx, rowIdx, slotIdx)}
+                              onDrop={handleDrop}
+                              style={{
+                                flex: `0 0 ${(row.slotWidths[slotIdx] ?? 1 / row.slots.length) * 100}%`,
+                                display: 'flex', flexDirection: 'column',
+                                overflow: 'hidden', position: 'relative', height: '100%',
+                              }}
+                            >
+                              <SlotTabBar
+                                panels={panels}
+                                activeTab={activePanel}
+                                onSelect={(id) => setActiveTab(slotKey, id)}
+                                onHide={handleHidePanel}
+                                onDragStart={handleDragStart}
+                              />
+                              <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+                                {panels.map((pid) => {
+                                  const Comp = PANEL_COMPONENTS[pid]
+                                  return (
+                                    <div
+                                      key={pid}
+                                      style={{
+                                        display: pid === activePanel ? 'flex' : 'none',
+                                        flexDirection: 'column', height: '100%', overflow: 'hidden',
+                                      }}
+                                    >
+                                      <Comp />
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                              <DropOverlay zone={dropZone} colIdx={colIdx} rowIdx={rowIdx} slotIdx={slotIdx} />
+                            </div>
+                            {slotIdx < row.slots.length - 1 && (
+                              <ColDivider onDrag={(dx) => handleSlotResize(colIdx, rowIdx, slotIdx, dx)} />
+                            )}
+                          </Fragment>
+                        )
+                      })}
+                    </div>
+                    {rowIdx < col.rows.length - 1 && (
+                      <RowDivider onDrag={(dy) => handleRowResize(colIdx, rowIdx, dy)} />
+                    )}
+                  </Fragment>
+                )
+              })}
+            </div>
+            {colIdx < layout.length - 1 && (
+              <ColDivider onDrag={(dx) => handleColumnResize(colIdx, dx)} />
+            )}
+          </Fragment>
+        ))}
       </div>
     </div>
   )

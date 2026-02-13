@@ -3,18 +3,18 @@ import { useAgentStore } from '../store/agents'
 import type { AgentEventType } from '../types'
 
 const EVENT_ICONS: Record<AgentEventType, { icon: string; color: string }> = {
-  spawn: { icon: '→', color: '#4ade80' },
-  exit: { icon: '←', color: '#6b7280' },
-  status_change: { icon: '◐', color: '#60a5fa' },
-  file_write: { icon: '✎', color: '#a78bfa' },
-  tool_call: { icon: '⚡', color: '#fbbf24' },
-  commit: { icon: '✓', color: '#4ade80' },
-  push: { icon: '↑', color: '#22d3ee' },
-  test_pass: { icon: '✓', color: '#4ade80' },
-  test_fail: { icon: '✗', color: '#f87171' },
-  build_pass: { icon: '✓', color: '#4ade80' },
-  build_fail: { icon: '✗', color: '#f87171' },
-  error: { icon: '!', color: '#f87171' }
+  spawn: { icon: '→', color: '#548C5A' },
+  exit: { icon: '←', color: '#595653' },
+  status_change: { icon: '◐', color: '#d4a040' },
+  file_write: { icon: '✎', color: '#c87830' },
+  tool_call: { icon: '⚡', color: '#d4a040' },
+  commit: { icon: '✓', color: '#548C5A' },
+  push: { icon: '↑', color: '#548C5A' },
+  test_pass: { icon: '✓', color: '#548C5A' },
+  test_fail: { icon: '✗', color: '#c45050' },
+  build_pass: { icon: '✓', color: '#548C5A' },
+  build_fail: { icon: '✗', color: '#c45050' },
+  error: { icon: '!', color: '#c45050' }
 }
 
 function formatTime(ts: number): string {
@@ -40,7 +40,6 @@ export function EventLog() {
         seen.set(evt.agentId, evt.agentName)
       }
     }
-    // Also include currently active agents
     for (const agent of agents) {
       if (!seen.has(agent.id)) {
         seen.set(agent.id, agent.name)
@@ -57,7 +56,6 @@ export function EventLog() {
     })
   }, [events, agentFilter, typeFilter])
 
-  // Auto-scroll to bottom on new events (unless hovering)
   useEffect(() => {
     if (!isHovering && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -72,48 +70,46 @@ export function EventLog() {
     setTypeFilter(e.target.value)
   }, [])
 
+  const selectStyle: React.CSSProperties = {
+    background: 'rgba(89,86,83,0.15)', fontSize: 12, color: '#9A9692',
+    border: '1px solid rgba(89,86,83,0.3)', borderRadius: 4,
+    padding: '3px 6px', outline: 'none', fontFamily: 'inherit',
+  }
+
   return (
-    <div className="flex flex-col h-full bg-[#16162a] text-gray-300">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0E0E0D', color: '#9A9692' }}>
       {/* Filter bar */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[#2a2a4a] shrink-0">
-        <select
-          value={agentFilter}
-          onChange={handleAgentFilter}
-          className="bg-[#1e1e3a] text-xs text-gray-300 border border-[#2a2a4a] rounded px-2 py-1 outline-none focus:border-purple-500"
-        >
-          <option value="all">All Agents</option>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderBottom: '1px solid rgba(89,86,83,0.2)', flexShrink: 0 }}>
+        <select value={agentFilter} onChange={handleAgentFilter} style={selectStyle}>
+          <option value="all" style={{ background: '#0E0E0D' }}>All Agents</option>
           {uniqueAgents.map(([id, name]) => (
-            <option key={id} value={id}>{name}</option>
+            <option key={id} value={id} style={{ background: '#0E0E0D' }}>{name}</option>
           ))}
         </select>
 
-        <select
-          value={typeFilter}
-          onChange={handleTypeFilter}
-          className="bg-[#1e1e3a] text-xs text-gray-300 border border-[#2a2a4a] rounded px-2 py-1 outline-none focus:border-purple-500"
-        >
-          <option value="all">All Events</option>
-          <option value="spawn">Spawn</option>
-          <option value="exit">Exit</option>
-          <option value="status_change">Status Change</option>
-          <option value="file_write">File Write</option>
-          <option value="tool_call">Tool Call</option>
-          <option value="commit">Commit</option>
-          <option value="push">Push</option>
-          <option value="test_pass">Test Pass</option>
-          <option value="test_fail">Test Fail</option>
-          <option value="build_pass">Build Pass</option>
-          <option value="build_fail">Build Fail</option>
-          <option value="error">Error</option>
+        <select value={typeFilter} onChange={handleTypeFilter} style={selectStyle}>
+          <option value="all" style={{ background: '#0E0E0D' }}>All Events</option>
+          <option value="spawn" style={{ background: '#0E0E0D' }}>Spawn</option>
+          <option value="exit" style={{ background: '#0E0E0D' }}>Exit</option>
+          <option value="status_change" style={{ background: '#0E0E0D' }}>Status Change</option>
+          <option value="file_write" style={{ background: '#0E0E0D' }}>File Write</option>
+          <option value="tool_call" style={{ background: '#0E0E0D' }}>Tool Call</option>
+          <option value="commit" style={{ background: '#0E0E0D' }}>Commit</option>
+          <option value="push" style={{ background: '#0E0E0D' }}>Push</option>
+          <option value="test_pass" style={{ background: '#0E0E0D' }}>Test Pass</option>
+          <option value="test_fail" style={{ background: '#0E0E0D' }}>Test Fail</option>
+          <option value="build_pass" style={{ background: '#0E0E0D' }}>Build Pass</option>
+          <option value="build_fail" style={{ background: '#0E0E0D' }}>Build Fail</option>
+          <option value="error" style={{ background: '#0E0E0D' }}>Error</option>
         </select>
 
-        <div className="flex-1" />
+        <div style={{ flex: 1 }} />
 
-        <span className="text-xs text-gray-500">{filteredEvents.length} events</span>
+        <span style={{ fontSize: 11, color: '#595653' }}>{filteredEvents.length} events</span>
 
         <button
           onClick={clearEvents}
-          className="text-xs text-gray-500 hover:text-red-400 px-2 py-0.5 rounded hover:bg-red-400/10 transition-colors"
+          style={{ background: 'transparent', border: 'none', color: '#595653', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}
         >
           Clear
         </button>
@@ -122,12 +118,12 @@ export function EventLog() {
       {/* Event list */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden"
+        style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
       >
         {filteredEvents.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500 text-xs">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#595653', fontSize: 12 }}>
             No events yet
           </div>
         ) : (
@@ -136,12 +132,16 @@ export function EventLog() {
             return (
               <div
                 key={evt.id}
-                className="flex items-center gap-2 px-3 py-1 text-xs font-mono hover:bg-[#1e1e3a] border-b border-[#1e1e3a]"
+                className="hover-row"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '3px 12px',
+                  fontSize: 12, fontFamily: 'inherit', borderBottom: '1px solid rgba(89,86,83,0.1)',
+                }}
               >
-                <span className="text-gray-500 shrink-0 w-16">{formatTime(evt.timestamp)}</span>
-                <span className="shrink-0 w-4 text-center" style={{ color }}>{icon}</span>
-                <span className="text-gray-400 shrink-0 w-20 truncate">{evt.agentName}</span>
-                <span className="text-gray-300 truncate">{evt.description}</span>
+                <span style={{ color: '#595653', flexShrink: 0, width: 58 }}>{formatTime(evt.timestamp)}</span>
+                <span style={{ flexShrink: 0, width: 16, textAlign: 'center', color }}>{icon}</span>
+                <span style={{ color: '#74747C', flexShrink: 0, width: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{evt.agentName}</span>
+                <span style={{ color: '#9A9692', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{evt.description}</span>
               </div>
             )
           })

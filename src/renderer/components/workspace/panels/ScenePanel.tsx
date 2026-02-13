@@ -6,15 +6,14 @@ import { CollapsibleSection } from '../CollapsibleSection'
 
 /**
  * Wraps the existing R3F Canvas + Office scene + HUD overlay.
- * Uses CSS display:none toggling via CollapsibleSection to avoid
- * destroying the WebGL context.
+ * Uses `fill` mode so the canvas stretches when the row is resized.
  */
 export function ScenePanel() {
   const selectAgent = useAgentStore((s) => s.selectAgent)
 
   return (
-    <CollapsibleSection title="OFFICE">
-      <div style={{ position: 'relative', width: '100%', height: 'calc(100% - 36px)', minHeight: 100 }}>
+    <CollapsibleSection title="OFFICE" fill>
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
         <Canvas
           shadows
           camera={{

@@ -14,13 +14,13 @@ function formatTokens(n: number): string {
 
 function statusColor(status: AgentStatus): string {
   switch (status) {
-    case 'streaming': return '#60a5fa'
-    case 'thinking': return '#c084fc'
-    case 'tool_calling': return '#fbbf24'
-    case 'error': return '#ef4444'
-    case 'done': return '#4ade80'
-    case 'waiting': return '#9ca3af'
-    default: return '#6b7280'
+    case 'streaming': return '#d4a040'
+    case 'thinking': return '#c87830'
+    case 'tool_calling': return '#d4a040'
+    case 'error': return '#c45050'
+    case 'done': return '#548C5A'
+    case 'waiting': return '#74747C'
+    default: return '#595653'
   }
 }
 
@@ -28,9 +28,9 @@ export function AgentTokenList({ agents, selectedId, onSelect }: Props) {
   const maxTokens = Math.max(...agents.map((a) => a.tokens_input + a.tokens_output), 1)
 
   return (
-    <div className="w-56 border-r border-white/10 overflow-y-auto">
-      <div className="p-3 text-xs text-white/40 uppercase tracking-wider">
-        Agents ({agents.length})
+    <div style={{ width: 220, borderRight: '1px solid rgba(89,86,83,0.2)', overflowY: 'auto' }}>
+      <div style={{ padding: '10px 14px', fontSize: 11, color: '#74747C', fontWeight: 600, letterSpacing: 1 }}>
+        AGENTS ({agents.length})
       </div>
       {agents.map((agent) => {
         const total = agent.tokens_input + agent.tokens_output
@@ -41,24 +41,26 @@ export function AgentTokenList({ agents, selectedId, onSelect }: Props) {
           <button
             key={agent.id}
             onClick={() => onSelect(agent.id)}
-            className={`w-full text-left px-3 py-2.5 border-b border-white/5 transition-colors ${
-              isSelected ? 'bg-white/10' : 'hover:bg-white/5'
-            }`}
+            className="hover-row"
+            style={{
+              width: '100%', textAlign: 'left', padding: '8px 14px',
+              borderBottom: '1px solid rgba(89,86,83,0.15)', cursor: 'pointer',
+              background: isSelected ? 'rgba(89,86,83,0.15)' : 'transparent',
+              border: 'none', fontFamily: 'inherit', display: 'block',
+            }}
           >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium truncate">{agent.name}</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: '#9A9692', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {agent.name}
+              </span>
               <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: statusColor(agent.status) }}
+                style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: statusColor(agent.status), flexShrink: 0 }}
               />
             </div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-400/60 rounded-full transition-all duration-500"
-                style={{ width: `${pct}%` }}
-              />
+            <div style={{ height: 4, background: 'rgba(89,86,83,0.2)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${pct}%`, background: '#d4a040', borderRadius: 2, transition: 'width 0.5s ease' }} />
             </div>
-            <div className="text-xs text-white/40 mt-1 font-mono">
+            <div style={{ fontSize: 11, color: '#595653', marginTop: 4, fontFamily: 'inherit' }}>
               {formatTokens(total)} tokens
             </div>
           </button>

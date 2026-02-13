@@ -14,9 +14,9 @@ function formatTokens(n: number): string {
 
 function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-white/50 text-xs uppercase tracking-wider">{label}</span>
-      <span className="font-mono font-semibold text-sm" style={color ? { color } : undefined}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ fontSize: 10, color: '#74747C', fontWeight: 600, letterSpacing: 1 }}>{label}</span>
+      <span style={{ fontFamily: 'inherit', fontWeight: 600, fontSize: 13, color: color ?? '#9A9692' }}>
         {value}
       </span>
     </div>
@@ -44,22 +44,31 @@ export function SessionTotals({ agents }: Props) {
   const isMax = subscription?.type === 'max_5x' || subscription?.type === 'max_20x'
 
   return (
-    <div className="border-t border-white/10 px-4 py-3 flex items-center gap-6 text-sm bg-black/40 shrink-0">
-      <Stat label="Total In" value={formatTokens(totalIn)} />
-      <Stat label="Total Out" value={formatTokens(totalOut)} />
+    <div
+      style={{
+        borderTop: '1px solid rgba(89,86,83,0.2)', padding: '8px 16px',
+        display: 'flex', alignItems: 'center', gap: 20, fontSize: 13,
+        background: 'rgba(14,14,13,0.6)', flexShrink: 0,
+      }}
+    >
+      <Stat label="TOTAL IN" value={formatTokens(totalIn)} />
+      <Stat label="TOTAL OUT" value={formatTokens(totalOut)} />
 
       {isMax && cost > 0 ? (
         <>
-          <Stat label="Saved" value={`$${cost.toFixed(3)}`} color="#4ade80" />
-          <div className="ml-auto flex items-center gap-2 text-emerald-400 text-xs">
-            <span className="px-1.5 py-0.5 rounded bg-emerald-400/15 font-medium">
+          <Stat label="SAVED" value={`$${cost.toFixed(3)}`} color="#548C5A" />
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+            <span
+              className="glow-green"
+              style={{ background: '#1a3a1a', color: '#548C5A', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 3 }}
+            >
               Claude Max
             </span>
-            <span>Saved ~${cost.toFixed(2)} this session</span>
+            <span style={{ color: '#548C5A' }}>Saved ~${cost.toFixed(2)} this session</span>
           </div>
         </>
       ) : (
-        <Stat label="Est. Cost" value={`$${cost.toFixed(3)}`} color="#fbbf24" />
+        <Stat label="EST. COST" value={`$${cost.toFixed(3)}`} color="#d4a040" />
       )}
     </div>
   )
