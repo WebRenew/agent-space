@@ -124,6 +124,7 @@ export interface AppSettings {
   scopes: Scope[]
   defaultScope: Scope
   soundsEnabled: boolean
+  yoloMode: boolean
 }
 
 // ── Claude Chat Session Types ──────────────────────────────────────────
@@ -206,6 +207,7 @@ export interface ClaudeSessionOptions {
   systemPrompt?: string
   allowedTools?: string[]
   workingDirectory?: string
+  dangerouslySkipPermissions?: boolean
 }
 
 export const DEFAULT_SCOPE: Scope = {
@@ -244,6 +246,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   scopes: [],
   defaultScope: DEFAULT_SCOPE,
   soundsEnabled: true,
+  yoloMode: false,
 }
 
 export interface AgentAppearance {
@@ -274,6 +277,9 @@ export interface Agent {
   activeCelebration: CelebrationType | null
   celebrationStartedAt: number | null
   sessionStats: SessionStats
+  isSubagent?: boolean
+  parentAgentId?: string
+  meetingSeat?: number
 }
 
 const SHIRT_COLORS = ['#4fa3f7', '#4ade80', '#a78bfa', '#fb923c', '#f87171', '#22d3ee', '#e879f9', '#facc15', '#34d399', '#f472b6']
@@ -342,6 +348,26 @@ declare global {
         start: (options: ClaudeSessionOptions) => Promise<{ sessionId: string }>
         stop: (sessionId: string) => Promise<void>
         onEvent: (callback: (event: ClaudeEvent) => void) => () => void
+      }
+      agent: {
+        generateMeta: (prompt: string) => Promise<{ name: string; taskDescription: string }>
+      }
+      memories: {
+        addChatMessage: (opts: {
+          content: string
+          role: string
+          scopeId: string
+          scopeName: string
+          workspacePath: string
+        }) => Promise<void>
+        getChatHistory: (scopeId: string, limit?: number) => Promise<Array<{
+          id: string
+          content: string
+          role: string
+          timestamp: string
+          category: string
+        }>>
+        isReady: () => Promise<boolean>
       }
     }
   }

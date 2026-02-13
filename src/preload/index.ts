@@ -173,7 +173,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   claude: {
-    start: (options: { prompt: string; model?: string; systemPrompt?: string; allowedTools?: string[]; workingDirectory?: string }) =>
+    start: (options: { prompt: string; model?: string; systemPrompt?: string; allowedTools?: string[]; workingDirectory?: string; dangerouslySkipPermissions?: boolean }) =>
       ipcRenderer.invoke('claude:start', options) as Promise<{ sessionId: string }>,
 
     stop: (sessionId: string) =>
@@ -191,5 +191,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('claude:event', handler)
       return () => { ipcRenderer.removeListener('claude:event', handler) }
     }
+  },
+  agent: {
+    generateMeta: (prompt: string) =>
+      ipcRenderer.invoke('agent:generateMeta', prompt) as Promise<{ name: string; taskDescription: string }>,
+  },
+  memories: {
+    addChatMessage: (opts: {
+      content: string
+      role: string
+      scopeId: string
+      scopeName: string
+      workspacePath: string
+    }) => ipcRenderer.invoke('memories:addChatMessage', opts) as Promise<void>,
+
+    getChatHistory: (scopeId: string, limit?: number) =>
+      ipcRenderer.invoke('memories:getChatHistory', scopeId, limit) as Promise<Array<{
+        id: string; content: string; role: string; timestamp: string; category: string
+      }>>,
+
+    isReady: () =>
+      ipcRenderer.invoke('memories:isReady') as Promise<boolean>,
   }
 })

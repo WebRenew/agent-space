@@ -14,6 +14,8 @@ let terminalCounter = 0
  * Stripped-down terminal panel for the workspace layout.
  * Only manages terminal tabs + xterm instances. Chat, Events, and
  * Tokens are now separate workspace panels.
+ *
+ * Auto-creates a terminal on mount if none exist.
  */
 export function TerminalPanelWrapper() {
   const terminals = useAgentStore((s) => s.terminals)
@@ -25,6 +27,7 @@ export function TerminalPanelWrapper() {
   const updateTerminal = useAgentStore((s) => s.updateTerminal)
 
   const [contextMenu, setContextMenu] = useState<{ terminalId: string; x: number; y: number } | null>(null)
+  const autoCreated = useRef(false)
 
   // Close context menu on click outside
   useEffect(() => {
@@ -62,6 +65,22 @@ export function TerminalPanelWrapper() {
       console.error('Failed to create terminal:', err)
     }
   }, [addTerminal, removeTerminal, removeAgent])
+
+  // Auto-create a terminal on mount if none exist
+  useEffect(() => {
+    if (autoCreated.current) return
+    if (terminals.length === 0) {
+      autoCreated.current = true
+      void handleCreateTerminal()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for hotkey event from WorkspaceLayout (Cmd+Shift+N)
+  useEffect(() => {
+    const handler = (): void => { void handleCreateTerminal() }
+    window.addEventListener('hotkey:newTerminal', handler as EventListener)
+    return () => window.removeEventListener('hotkey:newTerminal', handler as EventListener)
+  }, [handleCreateTerminal])
 
   const handleCloseTerminal = useCallback(
     async (terminalId: string, e: React.MouseEvent) => {
@@ -107,9 +126,12 @@ export function TerminalPanelWrapper() {
   }, [terminals, handleChangeScopeFromMenu])
 
   return (
-    <div className="flex flex-col h-full w-full">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       {/* Tab bar */}
-      <div className="flex items-center h-7 border-b border-white/5 px-1 gap-0.5 shrink-0">
+      <div style={{
+        display: 'flex', alignItems: 'center', height: 28, padding: '0 4px', gap: 2,
+        flexShrink: 0, borderBottom: '1px solid rgba(89,86,83,0.15)',
+      }}>
         {terminals.map((term) => {
           const scopeColor = getScopeColor(term.id)
           const isActiveTab = activeTerminalId === term.id
@@ -118,24 +140,40 @@ export function TerminalPanelWrapper() {
               key={term.id}
               onClick={() => setActiveTerminal(term.id)}
               onContextMenu={(e) => handleTabContextMenu(e, term.id)}
-              className={`flex items-center gap-1.5 px-2 h-6 rounded text-xs transition-colors ${
-                isActiveTab ? 'bg-white/8 text-gray-300' : 'text-gray-600 hover:text-gray-400 hover:bg-white/4'
-              }`}
+              className="nav-item"
               style={{
-                borderLeft: isActiveTab ? `2px solid ${scopeColor}` : undefined,
+                display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px', height: 24,
+                borderRadius: 4, fontSize: 12, fontWeight: 600, border: 'none',
+                cursor: 'pointer', fontFamily: 'inherit',
+                background: isActiveTab ? 'rgba(154,150,146,0.08)' : 'transparent',
+                color: isActiveTab ? '#9A9692' : '#595653',
+                borderLeft: isActiveTab && scopeColor !== 'transparent'
+                  ? `2px solid ${scopeColor}`
+                  : '2px solid transparent',
+                transition: 'all 0.15s ease',
               }}
             >
+              {/* Status dot */}
               <span
-                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                  term.isClaudeRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-600'
-                }`}
+                style={{
+                  width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                  background: term.isClaudeRunning ? '#548C5A' : '#595653',
+                  animation: term.isClaudeRunning ? 'pulse-green 2s ease-in-out infinite' : undefined,
+                }}
               />
-              <span className="truncate max-w-[80px]">{term.label}</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }}>
+                {term.label}
+              </span>
               <span
                 onClick={(e) => handleCloseTerminal(term.id, e)}
-                className="ml-0.5 text-gray-600 hover:text-red-400 rounded transition-colors text-[10px]"
+                style={{
+                  marginLeft: 2, color: '#595653', cursor: 'pointer', borderRadius: 2,
+                  padding: '0 2px', fontSize: 10, transition: 'color 0.15s ease',
+                }}
+                onMouseEnter={(e) => { (e.target as HTMLSpanElement).style.color = '#c45050' }}
+                onMouseLeave={(e) => { (e.target as HTMLSpanElement).style.color = '#595653' }}
               >
-                ×
+                x
               </span>
             </button>
           )
@@ -143,8 +181,15 @@ export function TerminalPanelWrapper() {
 
         {/* New terminal button */}
         <button
-          onClick={handleCreateTerminal}
-          className="flex items-center justify-center w-6 h-6 text-gray-600 hover:text-green-400 hover:bg-green-400/10 rounded transition-colors text-sm"
+          onClick={() => void handleCreateTerminal()}
+          className="nav-item"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 24, height: 24, color: '#595653', borderRadius: 4,
+            fontSize: 16, lineHeight: 1, background: 'transparent',
+            border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'color 0.15s ease',
+          }}
           title="New Terminal"
         >
           +
@@ -154,32 +199,56 @@ export function TerminalPanelWrapper() {
       {/* Context menu for scope switching */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-[#0e0e14] border border-white/10 rounded-lg shadow-xl py-1 min-w-[160px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          className="glass-panel"
+          style={{
+            position: 'fixed', zIndex: 50, borderRadius: 8, padding: '4px 0',
+            minWidth: 160, left: contextMenu.x, top: contextMenu.y,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+          }}
         >
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+          <div style={{
+            padding: '6px 12px', fontSize: 10, fontWeight: 600,
+            letterSpacing: 1, color: '#74747C', textTransform: 'uppercase',
+          }}>
             Change Scope
           </div>
           <button
             onClick={() => handleAutoDetectScope(contextMenu.terminalId)}
-            className="w-full px-3 py-1.5 text-xs text-left text-gray-400 hover:bg-white/5 transition-colors"
+            className="hover-row"
+            style={{
+              width: '100%', padding: '6px 12px', fontSize: 12,
+              textAlign: 'left', color: '#9A9692', background: 'transparent',
+              border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            }}
           >
             Auto-detect
           </button>
           <button
             onClick={() => handleChangeScopeFromMenu(contextMenu.terminalId, null)}
-            className="w-full px-3 py-1.5 text-xs text-left text-gray-400 hover:bg-white/5 transition-colors flex items-center gap-2"
+            className="hover-row"
+            style={{
+              width: '100%', padding: '6px 12px', fontSize: 12,
+              textAlign: 'left', color: '#9A9692', background: 'transparent',
+              border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}
           >
-            <span className="w-2 h-2 rounded-full bg-gray-500" />
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#595653' }} />
             None
           </button>
           {useSettingsStore.getState().settings.scopes.map((scope) => (
             <button
               key={scope.id}
               onClick={() => handleChangeScopeFromMenu(contextMenu.terminalId, scope.id)}
-              className="w-full px-3 py-1.5 text-xs text-left text-gray-400 hover:bg-white/5 transition-colors flex items-center gap-2"
+              className="hover-row"
+              style={{
+                width: '100%', padding: '6px 12px', fontSize: 12,
+                textAlign: 'left', color: '#9A9692', background: 'transparent',
+                border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}
             >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: scope.color }} />
+              <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: scope.color }} />
               {scope.name}
             </button>
           ))}
@@ -187,20 +256,14 @@ export function TerminalPanelWrapper() {
       )}
 
       {/* Terminal content */}
-      <div className="flex-1 relative overflow-hidden">
-        {terminals.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-600 text-xs">
-            Click <span className="text-green-400 mx-1 font-bold">+</span> to open a terminal
-          </div>
-        ) : (
-          terminals.map((term) => (
-            <TerminalTab
-              key={term.id}
-              terminalId={term.id}
-              isActive={activeTerminalId === term.id}
-            />
-          ))
-        )}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {terminals.map((term) => (
+          <TerminalTab
+            key={term.id}
+            terminalId={term.id}
+            isActive={activeTerminalId === term.id}
+          />
+        ))}
       </div>
     </div>
   )

@@ -4,6 +4,7 @@ import { Room } from './Room'
 import { Lighting } from './Lighting'
 import { Desk } from './Desk'
 import { AgentCharacter } from './AgentCharacter'
+import { MeetingTable } from './MeetingTable'
 import { OfficeCat } from './OfficeCat'
 import { useAgentStore } from '../store/agents'
 
@@ -19,12 +20,19 @@ function computeDeskPosition(index: number): [number, number, number] {
   return [X_OFFSET + col * X_SPACING, 0, Z_OFFSET + row * Z_SPACING]
 }
 
+// Meeting table positioned in the right side of the office
+const MEETING_TABLE_POS: [number, number, number] = [4.5, 0, 2.5]
+
 export function Office() {
   const agents = useAgentStore((s) => s.agents)
 
-  // Only show desks for active agents — no empty desks
-  const maxIndex = agents.length > 0 ? Math.max(...agents.map((a) => a.deskIndex)) : -1
-  const deskCount = agents.length > 0 ? Math.max(agents.length, maxIndex + 1) : 0
+  // Split agents into desk workers and subagents (meeting table)
+  const deskAgents = useMemo(() => agents.filter((a) => !a.isSubagent), [agents])
+  const subagents = useMemo(() => agents.filter((a) => a.isSubagent), [agents])
+
+  // Only show desks for active desk agents — no empty desks
+  const maxIndex = deskAgents.length > 0 ? Math.max(...deskAgents.map((a) => a.deskIndex)) : -1
+  const deskCount = deskAgents.length > 0 ? Math.max(deskAgents.length, maxIndex + 1) : 0
 
   const deskSlots = useMemo(() => {
     return Array.from({ length: deskCount }, (_, i) => ({
@@ -39,7 +47,7 @@ export function Office() {
       <Room />
 
       {deskSlots.map(({ index, position }) => {
-        const agent = agents.find((a) => a.deskIndex === index)
+        const agent = deskAgents.find((a) => a.deskIndex === index)
         return (
           <group key={index}>
             <Desk
@@ -51,6 +59,11 @@ export function Office() {
           </group>
         )
       })}
+
+      {/* Meeting table for subagents */}
+      {subagents.length > 0 && (
+        <MeetingTable position={MEETING_TABLE_POS} subagents={subagents} />
+      )}
 
       <OfficeCat />
 

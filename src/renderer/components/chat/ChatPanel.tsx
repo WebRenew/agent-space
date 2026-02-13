@@ -3,6 +3,9 @@ import type { ChatMessage, ClaudeEvent } from '../../types'
 import { randomAppearance } from '../../types'
 import { useAgentStore } from '../../store/agents'
 import { useWorkspaceStore } from '../../store/workspace'
+import { useSettingsStore } from '../../store/settings'
+import { useChatHistoryStore } from '../../store/chatHistory'
+import { matchScope } from '../../lib/scopeMatcher'
 import { ChatMessageBubble } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 
@@ -57,6 +60,8 @@ export function ChatPanel() {
   const [workingDir, setWorkingDir] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const agentIdRef = useRef<string | null>(null)
+  const subagentSeatCounter = useRef(0)
+  const activeSubagents = useRef<Map<string, string>>(new Map()) // toolUseId → subagentId
 
   const addAgent = useAgentStore((s) => s.addAgent)
   const removeAgent = useAgentStore((s) => s.removeAgent)
@@ -65,6 +70,45 @@ export function ChatPanel() {
   const addEvent = useAgentStore((s) => s.addEvent)
 
   const workspaceRoot = useWorkspaceStore((s) => s.rootPath)
+  const scopes = useSettingsStore((s) => s.settings.scopes)
+  const yoloMode = useSettingsStore((s) => s.settings.yoloMode)
+  const loadHistory = useChatHistoryStore((s) => s.loadHistory)
+  const getHistory = useChatHistoryStore((s) => s.getHistory)
+  const isHistoryLoaded = useChatHistoryStore((s) => s.isLoaded)
+
+  // Derive scope from working directory
+  const currentScope = workingDir ? matchScope(workingDir, scopes) : null
+  const scopeId = currentScope?.id ?? 'default'
+  const scopeName = currentScope?.name ?? 'default'
+
+  // Load chat history from memories on mount / scope change
+  useEffect(() => {
+    if (!isHistoryLoaded(scopeId)) {
+      loadHistory(scopeId).then(() => {
+        const history = useChatHistoryStore.getState().getHistory(scopeId)
+        if (history.length > 0) {
+          setMessages((prev) => prev.length === 0 ? history : prev)
+        }
+      }).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`[ChatPanel] Failed to load history: ${msg}`)
+      })
+    }
+  }, [scopeId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist a message to memories (fire-and-forget)
+  const persistMessage = useCallback((content: string, role: string) => {
+    window.electronAPI.memories.addChatMessage({
+      content,
+      role,
+      scopeId,
+      scopeName,
+      workspacePath: workingDir ?? '',
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[ChatPanel] Failed to persist message: ${msg}`)
+    })
+  }, [scopeId, scopeName, workingDir])
 
   // Sync working directory with workspace root
   // If chat is empty (no messages sent), auto-update to new folder
@@ -199,6 +243,46 @@ export function ChatPanel() {
                 updateAgent(agentId, { files_modified: current.files_modified + 1 })
               }
             }
+
+            // Detect subagent spawns (Task tool = Claude spawning a subagent)
+            if (data.name === 'Task') {
+              const subId = `sub-${agentId}-${data.id}`
+              const seat = subagentSeatCounter.current++
+              const subDescription = (data.input?.description as string) ?? (data.input?.prompt as string)?.slice(0, 60) ?? 'Subtask'
+              const subType = (data.input?.subagent_type as string) ?? 'general'
+
+              activeSubagents.current.set(data.id, subId)
+              addAgent({
+                id: subId,
+                name: subType.charAt(0).toUpperCase() + subType.slice(1),
+                agent_type: 'mcp',
+                status: 'thinking',
+                currentTask: subDescription.slice(0, 60),
+                model: '',
+                tokens_input: 0,
+                tokens_output: 0,
+                files_modified: 0,
+                started_at: Date.now(),
+                deskIndex: -1,
+                terminalId: agentId,
+                isClaudeRunning: true,
+                appearance: randomAppearance(),
+                commitCount: 0,
+                activeCelebration: null,
+                celebrationStartedAt: null,
+                sessionStats: { tokenHistory: [], peakInputRate: 0, peakOutputRate: 0, tokensByModel: {} },
+                isSubagent: true,
+                parentAgentId: agentId,
+                meetingSeat: seat,
+              })
+
+              addEvent({
+                agentId: subId,
+                agentName: subType,
+                type: 'spawn',
+                description: `Subagent: ${subDescription.slice(0, 40)}`,
+              })
+            }
           }
           break
         }
@@ -217,6 +301,21 @@ export function ChatPanel() {
             },
           ])
 
+          // Complete subagent if this result is for a Task tool
+          const subId = activeSubagents.current.get(data.tool_use_id)
+          if (subId) {
+            updateAgent(subId, {
+              status: data.is_error ? 'error' : 'done',
+              isClaudeRunning: false,
+            })
+            activeSubagents.current.delete(data.tool_use_id)
+
+            // Remove subagent after a brief delay to show completion
+            setTimeout(() => {
+              removeAgent(subId)
+            }, 5000)
+          }
+
           if (agentId) {
             updateAgent(agentId, { status: 'streaming' })
           }
@@ -228,6 +327,17 @@ export function ChatPanel() {
 
           // Remove any lingering thinking messages
           setMessages((prev) => prev.filter((m) => m.role !== 'thinking'))
+
+          // Persist the final assistant response to memories (outside setState)
+          setMessages((prev) => {
+            const assistantMessages = prev.filter((m) => m.role === 'assistant' && !m.toolName)
+            const lastAssistant = assistantMessages[assistantMessages.length - 1]
+            if (lastAssistant?.content) {
+              // Schedule persist outside React's batch update
+              queueMicrotask(() => persistMessage(lastAssistant.content, 'assistant'))
+            }
+            return prev
+          })
 
           if (data.is_error && data.error) {
             setMessages((prev) => [
@@ -278,7 +388,7 @@ export function ChatPanel() {
     })
 
     return unsub
-  }, [sessionId, updateAgent, addEvent])
+  }, [sessionId, updateAgent, addEvent, persistMessage])
 
   const handleSend = useCallback(
     async (message: string, files?: File[]) => {
@@ -324,6 +434,9 @@ export function ChatPanel() {
         },
       ])
 
+      // Persist user message to memories
+      persistMessage(message, 'user')
+
       setStatus('running')
 
       // Reuse existing agent for this chat, or spawn one on first message
@@ -336,14 +449,15 @@ export function ChatPanel() {
           isClaudeRunning: true,
         })
       } else {
-        // First message — spawn a 3D agent
+        // First message — spawn a 3D agent with placeholder name
         agentId = `chat-agent-${++chatAgentCounter}`
         agentIdRef.current = agentId
         const deskIndex = getNextDeskIndex()
+        const agentNum = chatAgentCounter
 
         addAgent({
           id: agentId,
-          name: `Chat ${chatAgentCounter}`,
+          name: `Agent ${agentNum}`,
           agent_type: 'chat',
           status: 'thinking',
           currentTask: message.slice(0, 60),
@@ -366,11 +480,20 @@ export function ChatPanel() {
             tokensByModel: {},
           },
         })
+
+        // Background: generate creative name + task description
+        const capturedAgentId = agentId
+        window.electronAPI.agent.generateMeta(message).then((meta) => {
+          updateAgent(capturedAgentId, {
+            name: meta.name,
+            currentTask: meta.taskDescription,
+          })
+        }).catch(() => { /* fallback name stays */ })
       }
 
       addEvent({
         agentId,
-        agentName: `Chat ${chatAgentCounter}`,
+        agentName: useAgentStore.getState().agents.find((a) => a.id === agentId)?.name ?? `Agent ${chatAgentCounter}`,
         type: 'spawn',
         description: 'Chat session started',
       })
@@ -379,6 +502,7 @@ export function ChatPanel() {
         const result = await window.electronAPI.claude.start({
           prompt,
           workingDirectory: workingDir ?? undefined,
+          dangerouslySkipPermissions: yoloMode,
         })
         setSessionId(result.sessionId)
       } catch (err: unknown) {
@@ -397,7 +521,7 @@ export function ChatPanel() {
         updateAgent(agentId, { status: 'error', isClaudeRunning: false })
       }
     },
-    [addAgent, updateAgent, removeAgent, getNextDeskIndex, addEvent, workingDir]
+    [addAgent, updateAgent, removeAgent, getNextDeskIndex, addEvent, workingDir, persistMessage, yoloMode]
   )
 
   const handleStop = useCallback(async () => {
@@ -439,6 +563,16 @@ export function ChatPanel() {
 
   const handleDividerPointerUp = useCallback(() => {
     isDraggingDivider.current = false
+  }, [])
+
+  const handleToggleYolo = useCallback(() => {
+    const current = useSettingsStore.getState().settings
+    const updated = { ...current, yoloMode: !current.yoloMode }
+    useSettingsStore.getState().setSettings(updated)
+    window.electronAPI.settings.set(updated).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[ChatPanel] Failed to save yolo setting: ${msg}`)
+    })
   }, [])
 
   // Derive display label for cwd
@@ -487,6 +621,21 @@ export function ChatPanel() {
             }}
           >
             ...
+          </button>
+          <button
+            onClick={handleToggleYolo}
+            title={yoloMode ? 'YOLO mode ON — bypassing permissions' : 'YOLO mode OFF — normal permissions'}
+            style={{
+              background: yoloMode ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+              border: yoloMode ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid transparent',
+              borderRadius: 4,
+              color: yoloMode ? '#ef4444' : '#595653',
+              cursor: 'pointer', fontFamily: 'inherit', fontSize: 10,
+              padding: '1px 6px', fontWeight: yoloMode ? 600 : 400,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            YOLO
           </button>
         </div>
       )}

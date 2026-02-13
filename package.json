@@ -23,6 +23,8 @@
     ]
   },
   "dependencies": {
+    "@memories.sh/cli": "^0.7.1",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@monaco-editor/react": "^4.7.0",
     "@react-three/drei": "^10.0.0",
     "@react-three/fiber": "^9.1.0",
@@ -103,6 +105,21 @@
       {
         "from": "node_modules/node-pty",
         "to": "node_modules/node-pty",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules/@memories.sh/cli",
+        "to": "node_modules/@memories.sh/cli",
+        "filter": [
+          "dist/**/*",
+          "package.json"
+        ]
+      },
+      {
+        "from": "node_modules/@libsql",
+        "to": "node_modules/@libsql",
         "filter": [
           "**/*"
         ]

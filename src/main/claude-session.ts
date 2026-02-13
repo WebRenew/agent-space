@@ -13,6 +13,7 @@ interface ClaudeSessionOptions {
   systemPrompt?: string
   allowedTools?: string[]
   workingDirectory?: string
+  dangerouslySkipPermissions?: boolean
 }
 
 interface ClaudeEvent {
@@ -270,6 +271,10 @@ function startSession(
     args.push('--allowedTools', ...options.allowedTools)
   }
 
+  if (options.dangerouslySkipPermissions) {
+    args.push('--dangerously-skip-permissions')
+  }
+
   // Sanitize prompt — strip null bytes to prevent spawn errors
   const safePrompt = options.prompt.replace(/\0/g, '')
 
@@ -427,6 +432,7 @@ export function setupClaudeSessionHandlers(mainWindow: BrowserWindow): void {
       systemPrompt: typeof opts.systemPrompt === 'string' ? opts.systemPrompt : undefined,
       allowedTools: Array.isArray(opts.allowedTools) ? opts.allowedTools.filter((t): t is string => typeof t === 'string') : undefined,
       workingDirectory: typeof opts.workingDirectory === 'string' ? opts.workingDirectory : undefined,
+      dangerouslySkipPermissions: opts.dangerouslySkipPermissions === true,
     }
     const sessionId = startSession(mainWindow, validated)
     return { sessionId }

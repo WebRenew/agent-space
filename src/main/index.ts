@@ -5,6 +5,8 @@ import { setupSettingsHandlers, createApplicationMenu } from './settings'
 import { setupClaudeSessionHandlers, cleanupClaudeSessions } from './claude-session'
 import { setupFilesystemHandlers } from './filesystem'
 import { setupLspHandlers, cleanupLspServers } from './lsp-manager'
+import { setupMemoriesHandlers, cleanupMemories } from './memories'
+import { setupAgentNamerHandlers } from './agent-namer'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -32,6 +34,8 @@ function createWindow(): void {
   setupSettingsHandlers()
   setupFilesystemHandlers(mainWindow)
   setupLspHandlers(mainWindow)
+  setupMemoriesHandlers()
+  setupAgentNamerHandlers(mainWindow)
   createApplicationMenu(mainWindow)
 
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -55,6 +59,7 @@ app.on('before-quit', () => {
   cleanupTerminals()
   cleanupClaudeSessions()
   cleanupLspServers()
+  cleanupMemories().catch(() => {})
 })
 
 app.on('window-all-closed', () => {
