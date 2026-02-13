@@ -2,10 +2,20 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import type { ChatMessage, ClaudeEvent } from '../../types'
 import { randomAppearance } from '../../types'
 import { useAgentStore } from '../../store/agents'
+import { useWorkspaceStore } from '../../store/workspace'
 import { ChatMessageBubble } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 
 type SessionStatus = 'idle' | 'running' | 'done' | 'error'
+
+const BINARY_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'tiff', 'psd',
+  'pdf', 'zip', 'tar', 'gz', 'rar', '7z',
+  'mp3', 'mp4', 'wav', 'mov', 'avi', 'mkv', 'flac',
+  'exe', 'dll', 'so', 'dylib', 'wasm',
+  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'dmg', 'iso', 'bin',
+])
 
 let chatMessageCounter = 0
 let chatAgentCounter = 0
@@ -44,6 +54,7 @@ export function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [status, setStatus] = useState<SessionStatus>('idle')
+  const [workingDir, setWorkingDir] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const agentIdRef = useRef<string | null>(null)
 
@@ -52,6 +63,38 @@ export function ChatPanel() {
   const updateAgent = useAgentStore((s) => s.updateAgent)
   const getNextDeskIndex = useAgentStore((s) => s.getNextDeskIndex)
   const addEvent = useAgentStore((s) => s.addEvent)
+
+  const workspaceRoot = useWorkspaceStore((s) => s.rootPath)
+
+  // Sync working directory with workspace root
+  // If chat is empty (no messages sent), auto-update to new folder
+  // If chat has messages, keep current dir unless user explicitly changes
+  useEffect(() => {
+    if (!workspaceRoot) return
+    if (messages.length === 0) {
+      setWorkingDir(workspaceRoot)
+    }
+  }, [workspaceRoot, messages.length])
+
+  // Initialize workingDir on mount
+  useEffect(() => {
+    if (workspaceRoot && !workingDir) {
+      setWorkingDir(workspaceRoot)
+    }
+  }, [workspaceRoot, workingDir])
+
+  const handleChangeWorkingDir = useCallback(async () => {
+    try {
+      const selected = await window.electronAPI.fs.openFolderDialog()
+      if (selected) setWorkingDir(selected)
+    } catch (err) {
+      console.error('[ChatPanel] Failed to change working directory:', err)
+    }
+  }, [])
+
+  const handleSyncToWorkspace = useCallback(() => {
+    if (workspaceRoot) setWorkingDir(workspaceRoot)
+  }, [workspaceRoot])
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -243,10 +286,20 @@ export function ChatPanel() {
       let prompt = message
       if (files && files.length > 0) {
         const fileContents: string[] = []
+        const binaryFiles: string[] = []
+
         for (const file of files) {
           try {
+            const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+            if (BINARY_EXTENSIONS.has(ext)) {
+              // Binary file — note it but don't inline content
+              binaryFiles.push(file.name)
+              continue
+            }
             const text = await file.text()
-            fileContents.push(`\n--- File: ${file.name} ---\n${text}\n--- End: ${file.name} ---`)
+            // Strip null bytes from text files (safety)
+            const safeText = text.replace(/\0/g, '')
+            fileContents.push(`\n--- File: ${file.name} ---\n${safeText}\n--- End: ${file.name} ---`)
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err)
             console.error(`Failed to read file ${file.name}: ${errMsg}`)
@@ -254,6 +307,9 @@ export function ChatPanel() {
         }
         if (fileContents.length > 0) {
           prompt = `${message}\n\nAttached files:${fileContents.join('\n')}`
+        }
+        if (binaryFiles.length > 0) {
+          prompt = `${prompt}\n\n[Attached binary files: ${binaryFiles.join(', ')} — binary content cannot be sent via CLI]`
         }
       }
 
@@ -270,36 +326,47 @@ export function ChatPanel() {
 
       setStatus('running')
 
-      // Spawn a 3D agent
-      const agentId = `chat-agent-${++chatAgentCounter}`
-      agentIdRef.current = agentId
-      const deskIndex = getNextDeskIndex()
+      // Reuse existing agent for this chat, or spawn one on first message
+      let agentId = agentIdRef.current
+      if (agentId) {
+        // Reuse — just update status back to active
+        updateAgent(agentId, {
+          status: 'thinking',
+          currentTask: message.slice(0, 60),
+          isClaudeRunning: true,
+        })
+      } else {
+        // First message — spawn a 3D agent
+        agentId = `chat-agent-${++chatAgentCounter}`
+        agentIdRef.current = agentId
+        const deskIndex = getNextDeskIndex()
 
-      addAgent({
-        id: agentId,
-        name: `Chat ${chatAgentCounter}`,
-        agent_type: 'chat',
-        status: 'thinking',
-        currentTask: message.slice(0, 60),
-        model: '',
-        tokens_input: 0,
-        tokens_output: 0,
-        files_modified: 0,
-        started_at: Date.now(),
-        deskIndex,
-        terminalId: agentId,
-        isClaudeRunning: true,
-        appearance: randomAppearance(),
-        commitCount: 0,
-        activeCelebration: null,
-        celebrationStartedAt: null,
-        sessionStats: {
-          tokenHistory: [],
-          peakInputRate: 0,
-          peakOutputRate: 0,
-          tokensByModel: {},
-        },
-      })
+        addAgent({
+          id: agentId,
+          name: `Chat ${chatAgentCounter}`,
+          agent_type: 'chat',
+          status: 'thinking',
+          currentTask: message.slice(0, 60),
+          model: '',
+          tokens_input: 0,
+          tokens_output: 0,
+          files_modified: 0,
+          started_at: Date.now(),
+          deskIndex,
+          terminalId: agentId,
+          isClaudeRunning: true,
+          appearance: randomAppearance(),
+          commitCount: 0,
+          activeCelebration: null,
+          celebrationStartedAt: null,
+          sessionStats: {
+            tokenHistory: [],
+            peakInputRate: 0,
+            peakOutputRate: 0,
+            tokensByModel: {},
+          },
+        })
+      }
 
       addEvent({
         agentId,
@@ -309,7 +376,10 @@ export function ChatPanel() {
       })
 
       try {
-        const result = await window.electronAPI.claude.start({ prompt })
+        const result = await window.electronAPI.claude.start({
+          prompt,
+          workingDirectory: workingDir ?? undefined,
+        })
         setSessionId(result.sessionId)
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -324,10 +394,10 @@ export function ChatPanel() {
           },
         ])
         setStatus('error')
-        removeAgent(agentId)
+        updateAgent(agentId, { status: 'error', isClaudeRunning: false })
       }
     },
-    [addAgent, removeAgent, getNextDeskIndex, addEvent]
+    [addAgent, updateAgent, removeAgent, getNextDeskIndex, addEvent, workingDir]
   )
 
   const handleStop = useCallback(async () => {
@@ -371,8 +441,56 @@ export function ChatPanel() {
     isDraggingDivider.current = false
   }, [])
 
+  // Derive display label for cwd
+  const cwdLabel = workingDir
+    ? workingDir.split('/').pop() ?? workingDir
+    : null
+  const showDirMismatch = workspaceRoot && workingDir && workspaceRoot !== workingDir
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Working directory header */}
+      {workingDir && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px',
+          borderBottom: '1px solid rgba(89,86,83,0.15)', fontSize: 11,
+          flexShrink: 0, minHeight: 26,
+        }}>
+          <span style={{ color: '#595653' }}>$</span>
+          <span
+            title={workingDir}
+            style={{
+              color: showDirMismatch ? '#c87830' : '#74747C',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+            }}
+          >
+            {cwdLabel}
+          </span>
+          {showDirMismatch && (
+            <button
+              onClick={handleSyncToWorkspace}
+              title={`Sync to ${workspaceRoot}`}
+              style={{
+                background: 'transparent', border: 'none', color: '#548C5A',
+                cursor: 'pointer', fontFamily: 'inherit', fontSize: 10, padding: '0 4px',
+              }}
+            >
+              sync
+            </button>
+          )}
+          <button
+            onClick={() => void handleChangeWorkingDir()}
+            title="Change working directory"
+            style={{
+              background: 'transparent', border: 'none', color: '#595653',
+              cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, padding: '0 4px',
+            }}
+          >
+            ...
+          </button>
+        </div>
+      )}
+
       {/* Messages */}
       <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
         {messages.length === 0 ? (
@@ -388,7 +506,9 @@ export function ChatPanel() {
           >
             <span style={{ fontSize: 24 }}>👾</span>
             <span style={{ color: '#74747C', fontSize: 13 }}>Ask Claude anything</span>
-            <span style={{ color: '#595653', fontSize: 11 }}>Powered by Claude Code CLI</span>
+            <span style={{ color: '#595653', fontSize: 11 }}>
+              {workingDir ? `Working in ${cwdLabel}` : 'Powered by Claude Code CLI'}
+            </span>
           </div>
         ) : (
           <>

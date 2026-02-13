@@ -270,8 +270,11 @@ function startSession(
     args.push('--allowedTools', ...options.allowedTools)
   }
 
-  // Separator before the prompt
-  args.push('--', options.prompt)
+  // Sanitize prompt — strip null bytes to prevent spawn errors
+  const safePrompt = options.prompt.replace(/\0/g, '')
+
+  // Pass prompt as CLI argument
+  args.push('--', safePrompt)
 
   // Validate and resolve working directory
   const home = process.env.HOME ?? process.cwd()

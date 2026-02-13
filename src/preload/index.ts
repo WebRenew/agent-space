@@ -134,6 +134,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('fs:openFolder', handler)
       return () => { ipcRenderer.removeListener('fs:openFolder', handler) }
     },
+
+    rename: (oldPath: string, newName: string) =>
+      ipcRenderer.invoke('fs:rename', oldPath, newName) as Promise<{ newPath: string }>,
+
+    delete: (filePath: string) =>
+      ipcRenderer.invoke('fs:delete', filePath) as Promise<void>,
+
+    revealInFinder: (filePath: string) =>
+      ipcRenderer.invoke('fs:revealInFinder', filePath) as Promise<void>,
+
+    openInTerminal: (dirPath: string) =>
+      ipcRenderer.invoke('fs:openInTerminal', dirPath) as Promise<void>,
   },
   lsp: {
     start: (languageId: string) =>

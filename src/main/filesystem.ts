@@ -1,7 +1,7 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, dialog, BrowserWindow, shell } from 'electron'
 import fs from 'fs'
 import path from 'path'
-import { execFile } from 'child_process'
+import { execFile, spawn } from 'child_process'
 import os from 'os'
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -242,6 +242,64 @@ export function setupFilesystemHandlers(mainWindow?: BrowserWindow): void {
       }
     } catch (err) {
       console.error('[filesystem] stat error:', err)
+      throw err
+    }
+  })
+
+  ipcMain.handle('fs:rename', async (_event, oldPath: string, newName: string) => {
+    try {
+      // Validate newName — no path separators or null bytes
+      if (newName.includes('/') || newName.includes('\\') || newName.includes('\0')) {
+        throw new Error('Invalid filename: must not contain path separators')
+      }
+      const resolved = path.resolve(oldPath)
+      const dir = path.dirname(resolved)
+      const newPath = path.join(dir, newName)
+      await fs.promises.rename(resolved, newPath)
+      return { newPath }
+    } catch (err) {
+      console.error('[filesystem] rename error:', err)
+      throw err
+    }
+  })
+
+  ipcMain.handle('fs:delete', async (_event, filePath: string) => {
+    try {
+      const resolved = path.resolve(filePath)
+      const stat = await fs.promises.stat(resolved)
+      if (stat.isDirectory()) {
+        await fs.promises.rm(resolved, { recursive: true })
+      } else {
+        await fs.promises.unlink(resolved)
+      }
+    } catch (err) {
+      console.error('[filesystem] delete error:', err)
+      throw err
+    }
+  })
+
+  ipcMain.handle('fs:revealInFinder', async (_event, filePath: string) => {
+    try {
+      shell.showItemInFolder(path.resolve(filePath))
+    } catch (err) {
+      console.error('[filesystem] revealInFinder error:', err)
+      throw err
+    }
+  })
+
+  ipcMain.handle('fs:openInTerminal', async (_event, dirPath: string) => {
+    try {
+      const resolved = path.resolve(dirPath)
+      const stat = await fs.promises.stat(resolved)
+      if (!stat.isDirectory()) {
+        throw new Error('Path is not a directory')
+      }
+      if (process.platform === 'darwin') {
+        const child = spawn('open', ['-a', 'Terminal', resolved], { detached: true, stdio: 'ignore' })
+        child.unref()
+      }
+    } catch (err) {
+      console.error('[filesystem] openInTerminal error:', err)
       throw err
     }
   })

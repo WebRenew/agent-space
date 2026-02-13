@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useWorkspaceStore } from '../../../store/workspace'
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -17,6 +17,19 @@ interface TreeNode extends FileEntry {
   isExpanded: boolean
   isLoading: boolean
   depth: number
+}
+
+// ── Context menu types ────────────────────────────────────────────────
+
+interface ContextMenuState {
+  x: number
+  y: number
+  node: TreeNode
+}
+
+interface RenameState {
+  path: string
+  currentName: string
 }
 
 // ── File icon helper ─────────────────────────────────────────────────
@@ -78,7 +91,27 @@ export function FileExplorerPanel({ onOpenFile }: Props) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [renaming, setRenaming] = useState<RenameState | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  // Close context menu on click outside
+  useEffect(() => {
+    if (!contextMenu) return
+    const handler = () => setContextMenu(null)
+    window.addEventListener('click', handler)
+    return () => window.removeEventListener('click', handler)
+  }, [contextMenu])
+
+  // Focus rename input when it appears
+  useEffect(() => {
+    if (renaming) {
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+    }
+  }, [renaming])
 
   // Sync browsePath with workspace root
   useEffect(() => {
@@ -166,6 +199,108 @@ export function FileExplorerPanel({ onOpenFile }: Props) {
   const handleNavigateTo = useCallback((dirPath: string) => {
     setBrowsePath(dirPath)
   }, [])
+
+  // ── Context menu actions ──────────────────────────────────────────
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, node: TreeNode) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, node })
+    setSelectedPath(node.path)
+  }, [])
+
+  const handleCopyPath = useCallback(() => {
+    if (!contextMenu) return
+    navigator.clipboard.writeText(contextMenu.node.path)
+    setContextMenu(null)
+  }, [contextMenu])
+
+  const handleCopyRelativePath = useCallback(() => {
+    if (!contextMenu || !browsePath) return
+    const rootForRelative = workspaceRoot ?? browsePath
+    const relative = contextMenu.node.path.startsWith(rootForRelative)
+      ? contextMenu.node.path.slice(rootForRelative.length + 1)
+      : contextMenu.node.path
+    navigator.clipboard.writeText(relative)
+    setContextMenu(null)
+  }, [contextMenu, browsePath, workspaceRoot])
+
+  const handleCopyName = useCallback(() => {
+    if (!contextMenu) return
+    navigator.clipboard.writeText(contextMenu.node.name)
+    setContextMenu(null)
+  }, [contextMenu])
+
+  const handleRevealInFinder = useCallback(() => {
+    if (!contextMenu) return
+    window.electronAPI.fs.revealInFinder(contextMenu.node.path)
+    setContextMenu(null)
+  }, [contextMenu])
+
+  const handleOpenInTerminal = useCallback(() => {
+    if (!contextMenu) return
+    const dir = contextMenu.node.isDirectory
+      ? contextMenu.node.path
+      : contextMenu.node.path.split('/').slice(0, -1).join('/')
+    window.electronAPI.fs.openInTerminal(dir)
+    setContextMenu(null)
+  }, [contextMenu])
+
+  const handleStartRename = useCallback(() => {
+    if (!contextMenu) return
+    setRenaming({ path: contextMenu.node.path, currentName: contextMenu.node.name })
+    setRenameValue(contextMenu.node.name)
+    setContextMenu(null)
+  }, [contextMenu])
+
+  const handleRenameSubmit = useCallback(async () => {
+    if (!renaming || !renameValue.trim() || renameValue === renaming.currentName) {
+      setRenaming(null)
+      return
+    }
+    try {
+      await window.electronAPI.fs.rename(renaming.path, renameValue.trim())
+      // Refresh the tree by reloading current directory
+      if (browsePath) {
+        const entries = await window.electronAPI.fs.readDir(browsePath)
+        setTree(entries.map((e) => ({
+          ...e,
+          isExpanded: false,
+          isLoading: false,
+          depth: 0,
+        })))
+      }
+    } catch (err) {
+      console.error('[FileExplorer] Rename failed:', err)
+    }
+    setRenaming(null)
+  }, [renaming, renameValue, browsePath])
+
+  const handleDelete = useCallback(async () => {
+    if (!contextMenu) return
+    const node = contextMenu.node
+    setContextMenu(null)
+
+    const typeLabel = node.isDirectory ? 'folder' : 'file'
+    // Simple confirmation via window.confirm (no native dialog dependency needed)
+    if (!window.confirm(`Delete ${typeLabel} "${node.name}"?`)) return
+
+    try {
+      await window.electronAPI.fs.delete(node.path)
+      // Refresh
+      if (browsePath) {
+        const entries = await window.electronAPI.fs.readDir(browsePath)
+        setTree(entries.map((e) => ({
+          ...e,
+          isExpanded: false,
+          isLoading: false,
+          depth: 0,
+        })))
+      }
+    } catch (err) {
+      console.error('[FileExplorer] Delete failed:', err)
+    }
+  }, [contextMenu, browsePath])
 
   // Flatten tree for rendering
   const flatNodes = flattenTree(tree)
@@ -270,6 +405,7 @@ export function FileExplorerPanel({ onOpenFile }: Props) {
               onDoubleClick={() => {
                 if (node.isDirectory) handleNavigateTo(node.path)
               }}
+              onContextMenu={(e) => handleContextMenu(e, node)}
               style={{
                 display: 'flex', alignItems: 'center', gap: 4,
                 padding: `2px 8px 2px ${8 + node.depth * 16}px`,
@@ -280,14 +416,33 @@ export function FileExplorerPanel({ onOpenFile }: Props) {
               <span style={{ color: iconColor(node.name, node.isDirectory), width: 14, textAlign: 'center', flexShrink: 0, fontSize: node.isDirectory ? 10 : 12 }}>
                 {node.isLoading ? '⟳' : fileIcon(node.name, node.isDirectory, node.isExpanded)}
               </span>
-              <span style={{
-                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                color: node.isDirectory ? '#9A9692' : '#74747C',
-                fontWeight: node.isDirectory ? 500 : 400,
-              }}>
-                {node.name}
-              </span>
-              {!node.isDirectory && (
+              {renaming && renaming.path === node.path ? (
+                <input
+                  ref={renameInputRef}
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleRenameSubmit()
+                    if (e.key === 'Escape') setRenaming(null)
+                  }}
+                  onBlur={() => void handleRenameSubmit()}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    flex: 1, background: 'rgba(89,86,83,0.2)', border: '1px solid rgba(84,140,90,0.4)',
+                    borderRadius: 2, color: '#9A9692', fontSize: 12, fontFamily: 'inherit',
+                    padding: '1px 4px', outline: 'none',
+                  }}
+                />
+              ) : (
+                <span style={{
+                  flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  color: node.isDirectory ? '#9A9692' : '#74747C',
+                  fontWeight: node.isDirectory ? 500 : 400,
+                }}>
+                  {node.name}
+                </span>
+              )}
+              {!node.isDirectory && renaming?.path !== node.path && (
                 <span style={{ color: '#3a3a38', fontSize: 10, flexShrink: 0 }}>
                   {formatSize(node.size)}
                 </span>
@@ -296,6 +451,70 @@ export function FileExplorerPanel({ onOpenFile }: Props) {
           ))
         )}
       </div>
+
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            top: contextMenu.y,
+            left: contextMenu.x,
+            zIndex: 9999,
+            background: '#1a1a19',
+            border: '1px solid rgba(89,86,83,0.3)',
+            borderRadius: 4,
+            padding: '4px 0',
+            minWidth: 180,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            fontSize: 12,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ContextMenuItem label="Copy Path" shortcut="⌥⌘C" onClick={handleCopyPath} />
+          <ContextMenuItem label="Copy Relative Path" shortcut="⇧⌥⌘C" onClick={handleCopyRelativePath} />
+          <ContextMenuItem label="Copy Name" onClick={handleCopyName} />
+          <div style={{ height: 1, background: 'rgba(89,86,83,0.2)', margin: '4px 0' }} />
+          <ContextMenuItem label="Rename" shortcut="Enter" onClick={handleStartRename} />
+          <ContextMenuItem label="Delete" danger onClick={() => void handleDelete()} />
+          <div style={{ height: 1, background: 'rgba(89,86,83,0.2)', margin: '4px 0' }} />
+          <ContextMenuItem label="Reveal in Finder" onClick={handleRevealInFinder} />
+          <ContextMenuItem label="Open in Terminal" onClick={handleOpenInTerminal} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Context menu item ─────────────────────────────────────────────────
+
+function ContextMenuItem({
+  label,
+  shortcut,
+  danger,
+  onClick,
+}: {
+  label: string
+  shortcut?: string
+  danger?: boolean
+  onClick: () => void
+}) {
+  return (
+    <div
+      className="hover-row"
+      onClick={onClick}
+      style={{
+        padding: '5px 12px',
+        cursor: 'pointer',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        color: danger ? '#c45050' : '#9A9692',
+      }}
+    >
+      <span>{label}</span>
+      {shortcut && (
+        <span style={{ color: '#595653', fontSize: 10, marginLeft: 20 }}>{shortcut}</span>
+      )}
     </div>
   )
 }
