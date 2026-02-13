@@ -135,8 +135,8 @@ export const SHORTCUTS = {
   escape:           { hotkey: { key: 'Escape' }, label: 'Esc', description: 'Close Menus / Deselect' },
 } as const
 
-/** Ordered panel IDs — index maps to Cmd+1 through Cmd+8 */
+/** Ordered panel IDs — index maps to Cmd+1 through Cmd+7 */
 export const PANEL_SHORTCUT_ORDER = [
   'chat', 'terminal', 'tokens', 'scene3d',
-  'activity', 'memoryGraph', 'agents', 'recentMemories',
+  'activity', 'agents', 'recentMemories',
 ] as const

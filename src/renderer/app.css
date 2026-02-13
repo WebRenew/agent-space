@@ -244,6 +244,28 @@ html, body, #root {
 .slot-tab:hover .tab-close { opacity: 0.5; }
 .tab-close:hover { opacity: 1 !important; color: #c45050 !important; }
 
+/* ─── Slot hide button (yellow dot → collapse) ─────────────────────── */
+.slot-hide-btn {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  align-self: center;
+  margin-right: 6px;
+  color: #d4a040;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+  animation: pulse-amber 2s ease-in-out infinite;
+}
+.slot-hide-btn:hover {
+  color: #c45050;
+  background: rgba(196, 80, 80, 0.1);
+  animation: none;
+}
+
 /* ─── Panel resize divider (row) ───────────────────────────────────── */
 .panel-divider {
   height: 5px;

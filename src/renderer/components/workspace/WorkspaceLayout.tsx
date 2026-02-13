@@ -21,7 +21,6 @@ import { ChatPanelWrapper } from './panels/ChatPanelWrapper'
 import { TerminalPanelWrapper } from './panels/TerminalPanelWrapper'
 import { ActivityPanel } from './panels/ActivityPanel'
 import { AgentsPanel } from './panels/AgentsPanel'
-import { MemoryGraphPanel } from './panels/MemoryGraphPanel'
 import { RecentMemoriesPanel } from './panels/RecentMemoriesPanel'
 import { TokensPanel } from './panels/TokensPanel'
 import { FileExplorerPanel } from './panels/FileExplorerPanel'
@@ -69,7 +68,6 @@ const PANEL_COMPONENTS: Record<PanelId, ComponentType> = {
   tokens: TokensPanel,
   scene3d: ScenePanel,
   activity: ActivityPanel,
-  memoryGraph: MemoryGraphPanel,
   agents: AgentsPanel,
   recentMemories: RecentMemoriesPanel,
   fileExplorer: FileExplorerWrapper,
@@ -209,12 +207,14 @@ function SlotTabBar({
   activeTab,
   onSelect,
   onHide,
+  onHideSlot,
   onDragStart,
 }: {
   panels: PanelId[]
   activeTab: PanelId
   onSelect: (id: PanelId) => void
   onHide: (id: PanelId) => void
+  onHideSlot: () => void
   onDragStart: (e: React.DragEvent, id: PanelId) => void
 }) {
   return (
@@ -244,10 +244,15 @@ function SlotTabBar({
         </div>
       ))}
       <div style={{ flex: 1 }} />
-      <div
-        className="pulse-amber"
-        style={{ width: 8, height: 8, background: '#d4a040', borderRadius: '50%', alignSelf: 'center', marginRight: 10 }}
-      />
+      <button
+        onClick={onHideSlot}
+        className="slot-hide-btn"
+        title="Hide section"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+          <circle cx="5" cy="5" r="4" />
+        </svg>
+      </button>
     </div>
   )
 }
@@ -415,6 +420,18 @@ export function WorkspaceLayout() {
     setLayout((prev) => {
       const next = removePanelFromLayout(prev, panelId)
       return next.length > 0 ? next : prev // don't allow hiding the last panel
+    })
+  }, [])
+
+  const handleHideSlot = useCallback((panels: PanelId[]) => {
+    setLayout((prev) => {
+      let next = deepCloneLayout(prev)
+      for (const pid of panels) {
+        const result = removePanelFromLayout(next, pid)
+        if (result.length > 0) next = result
+        else break // don't remove the very last panel
+      }
+      return next
     })
   }, [])
 
@@ -678,6 +695,7 @@ export function WorkspaceLayout() {
                                 activeTab={activePanel}
                                 onSelect={(id) => setActiveTab(slotKey, id)}
                                 onHide={handleHidePanel}
+                                onHideSlot={() => handleHideSlot(panels)}
                                 onDragStart={handleDragStart}
                               />
                               <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>

@@ -6,7 +6,6 @@ export type PanelId =
   | 'tokens'
   | 'scene3d'
   | 'activity'
-  | 'memoryGraph'
   | 'agents'
   | 'recentMemories'
   | 'fileExplorer'
@@ -33,7 +32,7 @@ export type Layout = LayoutColumn[]
 
 export const ALL_PANELS: PanelId[] = [
   'chat', 'terminal', 'tokens',
-  'scene3d', 'activity', 'memoryGraph', 'agents', 'recentMemories',
+  'scene3d', 'activity', 'agents', 'recentMemories',
   'fileExplorer', 'fileSearch', 'filePreview',
 ]
 
@@ -43,7 +42,6 @@ export const PANEL_LABELS: Record<PanelId, string> = {
   tokens: 'TOKENS',
   scene3d: 'OFFICE',
   activity: 'ACTIVITY',
-  memoryGraph: 'MEMORY GRAPH',
   agents: 'AGENTS',
   recentMemories: 'RECENT',
   fileExplorer: 'EXPLORER',
@@ -71,7 +69,6 @@ export const DEFAULT_LAYOUT: Layout = [
     rows: [
       { slots: ['scene3d'], slotWidths: [1], height: 260 },
       { slots: [['filePreview', 'activity']], slotWidths: [1], height: -1 },
-      { slots: [['memoryGraph', 'agents', 'recentMemories']], slotWidths: [1], height: 180 },
     ],
   },
 ]
@@ -167,6 +164,11 @@ export function removePanelFromLayout(layout: Layout, panelId: PanelId): Layout 
       }
     }
     col.rows = col.rows.filter((r) => r.slots.length > 0)
+
+    // Ensure at least one row is flex so the column fills its height
+    if (col.rows.length > 0 && !col.rows.some((r) => r.height === -1)) {
+      col.rows[col.rows.length - 1].height = -1
+    }
   }
 
   // Remove empty columns, redistribute widths
