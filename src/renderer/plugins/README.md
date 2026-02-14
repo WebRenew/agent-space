@@ -55,6 +55,16 @@ export default function register(api) {
 
 ### `api.registerHook(event, handler, options?)`
 
+Also supports OpenClaw-style object form:
+
+```js
+api.registerHook({
+  event: 'before_tool_call',
+  order: 25,
+  handler: (payload) => { /* ... */ },
+})
+```
+
 Supported events:
 - `before_agent_start`
 - `agent_end`

@@ -116,6 +116,12 @@ export interface PluginPromptTransformApplyResult {
   errorMessage: string | null
 }
 
+export interface PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> {
+  event: E
+  handler: PluginHookHandler<E>
+  order?: number
+}
+
 export interface PluginCatalogSnapshot {
   directories: string[]
   plugins: RuntimeDiscoveredPlugin[]
@@ -136,8 +142,8 @@ interface PluginModule {
 
 interface RendererPluginApi {
   registerHook: <E extends PluginHookEvent>(
-    event: E,
-    handler: PluginHookHandler<E>,
+    event: E | PluginHookDefinition<E>,
+    handler?: PluginHookHandler<E>,
     options?: { order?: number }
   ) => () => void
   on: <E extends PluginHookEvent>(
@@ -169,6 +175,10 @@ const hooksByEvent: HooksByEvent = {
   before_tool_call: [],
   after_tool_call: [],
   tool_result_persist: [],
+}
+
+function isPluginHookEvent(value: string): value is PluginHookEvent {
+  return Object.prototype.hasOwnProperty.call(hooksByEvent, value)
 }
 
 const pluginCatalogListeners = new Set<() => void>()
@@ -222,6 +232,11 @@ function asStringArray(value: unknown): string[] {
   return value
     .map((entry) => asString(entry))
     .filter((entry): entry is string => Boolean(entry))
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return value
 }
 
 function dedupePreserveOrder(values: string[]): string[] {
@@ -666,6 +681,43 @@ export async function applyPluginPromptTransforms(
   }
 }
 
+function normalizeHookRegistration<E extends PluginHookEvent>(
+  event: E | PluginHookDefinition<E>,
+  handler?: PluginHookHandler<E>,
+  options?: { order?: number }
+): { event: E; handler: PluginHookHandler<E>; order?: number } {
+  if (typeof event === 'string') {
+    if (typeof handler !== 'function') {
+      throw new Error(`Hook "${event}" requires a handler function`)
+    }
+    return {
+      event,
+      handler,
+      order: options?.order,
+    }
+  }
+
+  const registration = asRecord(event as unknown)
+  if (!registration) {
+    throw new Error('Hook registration must be a string event or object definition')
+  }
+
+  const rawEvent = asString(registration.event)
+  if (!rawEvent || !isPluginHookEvent(rawEvent)) {
+    throw new Error(`Unsupported hook event: ${String(registration.event)}`)
+  }
+
+  if (typeof registration.handler !== 'function') {
+    throw new Error(`Hook "${rawEvent}" requires a handler function`)
+  }
+
+  return {
+    event: rawEvent as E,
+    handler: registration.handler as PluginHookHandler<E>,
+    order: asFiniteNumber(registration.order) ?? options?.order,
+  }
+}
+
 async function loadPluginModule(
   plugin: RawDiscoveredPlugin,
   entryPath: string
@@ -686,13 +738,14 @@ async function loadPluginModule(
 
   const hookDisposers: Array<() => void> = []
   const registerHookFromPlugin = <E extends PluginHookEvent>(
-    event: E,
-    handler: PluginHookHandler<E>,
+    event: E | PluginHookDefinition<E>,
+    handler?: PluginHookHandler<E>,
     options?: { order?: number }
   ): (() => void) => {
-    const dispose = registerPluginHook(event, handler, {
+    const normalized = normalizeHookRegistration(event, handler, options)
+    const dispose = registerPluginHook(normalized.event, normalized.handler, {
       pluginId: plugin.id,
-      order: options?.order,
+      order: normalized.order,
     })
     hookDisposers.push(dispose)
     return () => {
@@ -972,6 +1025,9 @@ export function registerPluginHook<E extends PluginHookEvent>(
   handler: PluginHookHandler<E>,
   options?: { pluginId?: string; order?: number }
 ): () => void {
+  if (!isPluginHookEvent(String(event))) {
+    throw new Error(`Unsupported hook event: ${String(event)}`)
+  }
   const hook: RegisteredHook<E> = {
     id: `hook-${++hookCounter}`,
     event,
