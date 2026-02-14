@@ -9,6 +9,7 @@
     "preview": "electron-vite preview",
     "package": "electron-vite build && electron-builder --mac --dir",
     "package:dmg": "electron-vite build && electron-builder --mac dmg",
+    "test:smoke": "pnpm build && playwright test -c playwright.smoke.config.ts",
     "postinstall": "electron-rebuild -f -w node-pty"
   },
   "keywords": [],
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

@@ -5,14 +5,14 @@ Last updated: 2026-02-14
 
 ## Phase 1 - Stability and Confidence
 
-- [ ] **Shared Electron API contract + passing root typecheck**
+- [x] **Shared Electron API contract + passing root typecheck**
   - Goal: eliminate renderer/preload/main API drift.
   - Done when:
     - one shared `electronAPI` type source is used in preload + renderer.
     - root `tsc` checks pass for node + renderer configs.
     - CI fails on any contract mismatch.
 
-- [ ] **Desktop smoke tests (Playwright/Electron)**
+- [x] **Desktop smoke tests (Playwright/Electron)**
   - Goal: prevent regressions in core flows.
   - Coverage:
     - app launch

@@ -30,3 +30,7 @@ build/
 
 # Next.js
 web/.next/
+
+# Playwright
+playwright-report/
+test-results/
