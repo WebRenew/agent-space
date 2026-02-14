@@ -99,6 +99,7 @@ const runtimeByJobId = new Map<string, TodoRunnerRuntime>()
 const runningProcessByJobId = new Map<string, RunningTodoProcess>()
 const stoppedByUserJobIds = new Set<string>()
 const forceKillTimerByJobId = new Map<string, NodeJS.Timeout>()
+const manualRunRequestedJobIds = new Set<string>()
 
 function createRuntime(): TodoRunnerRuntime {
   return {
@@ -465,6 +466,7 @@ function deleteJob(jobId: string): void {
   if (!jobId) throw new Error('Job id is required')
 
   stopRunningProcess(jobId, 'delete')
+  manualRunRequestedJobIds.delete(jobId)
 
   jobsCache = jobsCache.filter((job) => job.id !== jobId)
   runtimeByJobId.delete(jobId)
@@ -475,6 +477,9 @@ function deleteJob(jobId: string): void {
 function startJob(jobId: string): TodoRunnerJobView {
   const job = findJobById(jobId)
   job.enabled = true
+  if (!runningProcessByJobId.has(jobId)) {
+    manualRunRequestedJobIds.add(jobId)
+  }
   job.updatedAt = Date.now()
   writeJobsToDisk(jobsCache)
   broadcastTodoRunnerUpdate()
@@ -486,6 +491,7 @@ function pauseJob(jobId: string): TodoRunnerJobView {
   const job = findJobById(jobId)
   job.enabled = false
   job.updatedAt = Date.now()
+  manualRunRequestedJobIds.delete(jobId)
 
   stopRunningProcess(jobId, 'pause')
 
@@ -505,6 +511,7 @@ function resetJob(jobId: string): TodoRunnerJobView {
     lastDurationMs: null,
   }))
   job.updatedAt = Date.now()
+  manualRunRequestedJobIds.delete(jobId)
 
   const runtime = ensureRuntime(job.id)
   runtime.lastStatus = 'idle'
@@ -828,6 +835,7 @@ async function todoRunnerTick(): Promise<void> {
 
       const nextIndex = findNextRunnableTodoIndex(job)
       if (nextIndex === null) {
+        manualRunRequestedJobIds.delete(job.id)
         const runtime = ensureRuntime(job.id)
         const allDone = job.todos.every((todo) => todo.status === 'done')
         if (allDone && runtime.lastStatus !== 'success') {
@@ -839,7 +847,9 @@ async function todoRunnerTick(): Promise<void> {
         continue
       }
 
-      await runTodo(job, nextIndex, 'auto')
+      const trigger: TodoRunnerRunTrigger = manualRunRequestedJobIds.has(job.id) ? 'manual' : 'auto'
+      manualRunRequestedJobIds.delete(job.id)
+      await runTodo(job, nextIndex, trigger)
       break
     }
   } finally {
@@ -904,4 +914,5 @@ export function cleanupTodoRunner(): void {
     stopRunningProcess(jobId, 'cleanup')
   }
   runningProcessByJobId.clear()
+  manualRunRequestedJobIds.clear()
 }
