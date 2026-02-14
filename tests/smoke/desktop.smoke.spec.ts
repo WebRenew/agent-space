@@ -28,6 +28,7 @@ test('desktop smoke flows: launch, reopen, folder scope, popout, terminal', asyn
     }
 
     await expect(mainWindow.locator('.slot-tab', { hasText: 'CHAT' }).first()).toBeVisible()
+    await expect(mainWindow.getByRole('button', { name: 'Choose folder' }).first()).toBeVisible()
 
     // Regression check: duplicate ipcMain.handle registration should self-recover
     // instead of crashing startup/reopen flows.
