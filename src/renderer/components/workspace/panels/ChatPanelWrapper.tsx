@@ -70,6 +70,8 @@ export function ChatPanelWrapper() {
       }}>
         {chatSessions.map((session) => {
           const isActiveTab = activeChatSessionId === session.id
+          const isCustomDirectory = session.directoryMode === 'custom'
+          const modeLabel = isCustomDirectory ? 'custom' : 'workspace'
           return (
             <button
               key={session.id}
@@ -93,6 +95,25 @@ export function ChatPanelWrapper() {
               />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }}>
                 {session.label}
+              </span>
+              <span
+                title={`Directory mode: ${modeLabel}`}
+                style={{
+                  minWidth: 14,
+                  height: 14,
+                  borderRadius: 3,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: 0.3,
+                  border: `1px solid ${isCustomDirectory ? 'rgba(200,120,48,0.5)' : 'rgba(84,140,90,0.5)'}`,
+                  color: isCustomDirectory ? '#c87830' : '#548C5A',
+                  background: isCustomDirectory ? 'rgba(200,120,48,0.1)' : 'rgba(84,140,90,0.1)',
+                }}
+              >
+                {isCustomDirectory ? 'C' : 'W'}
               </span>
               {/* Pop-out button */}
               <span
