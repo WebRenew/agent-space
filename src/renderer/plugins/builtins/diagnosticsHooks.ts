@@ -52,6 +52,9 @@ export function registerDiagnosticsHooks(registerHook: RegisterHookFn): void {
   register(registerHook, 'message_received', (payload) => {
     logRendererEvent('info', 'plugin.hook.message_received', sanitizePayload(payload))
   })
+  register(registerHook, 'message_sending', (payload) => {
+    logRendererEvent('info', 'plugin.hook.message_sending', sanitizePayload(payload))
+  })
   register(registerHook, 'message_sent', (payload) => {
     logRendererEvent('info', 'plugin.hook.message_sent', sanitizePayload(payload))
   })

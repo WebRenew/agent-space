@@ -1308,6 +1308,16 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
         profileId: profileForRun.profile.id,
         profileSource: profileForRun.source,
       })
+      void emitPluginHook('message_sending', {
+        chatSessionId,
+        workspaceDirectory: effectiveWorkingDir,
+        agentId,
+        timestamp: Date.now(),
+        promptPreview: truncateForHook(prompt, 240),
+        promptLength: prompt.length,
+        mentionCount: mentionTokens.length,
+        attachmentCount: files?.length ?? 0,
+      })
 
       try {
         const result = await window.electronAPI.claude.start({

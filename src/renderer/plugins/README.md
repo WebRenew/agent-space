@@ -50,6 +50,7 @@ Supported events:
 - `session_start`
 - `session_end`
 - `message_received`
+- `message_sending`
 - `message_sent`
 - `before_tool_call`
 - `after_tool_call`

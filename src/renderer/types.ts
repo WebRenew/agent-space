@@ -20,6 +20,7 @@ export type PluginHookEvent =
   | 'session_start'
   | 'session_end'
   | 'message_received'
+  | 'message_sending'
   | 'message_sent'
   | 'before_tool_call'
   | 'after_tool_call'
@@ -57,6 +58,13 @@ export interface PluginMessageSentHook extends PluginHookBase {
   messageLength: number
 }
 
+export interface PluginMessageSendingHook extends PluginHookBase {
+  promptPreview: string
+  promptLength: number
+  mentionCount: number
+  attachmentCount: number
+}
+
 export interface PluginBeforeToolCallHook extends PluginHookBase {
   toolName: string
   toolUseId: string
@@ -73,6 +81,7 @@ export interface PluginHookEventPayloadMap {
   session_start: PluginSessionStartHook
   session_end: PluginSessionEndHook
   message_received: PluginMessageReceivedHook
+  message_sending: PluginMessageSendingHook
   message_sent: PluginMessageSentHook
   before_tool_call: PluginBeforeToolCallHook
   after_tool_call: PluginAfterToolCallHook
