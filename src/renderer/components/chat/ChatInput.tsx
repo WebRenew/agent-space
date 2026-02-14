@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { usePluginCatalog } from '../../plugins/usePluginCatalog'
 
 interface Props {
   onSend: (message: string, files?: File[], mentions?: string[]) => void | Promise<void>
@@ -17,6 +18,18 @@ interface MentionSuggestion {
   path: string
   relPath: string
   name: string
+}
+
+interface CommandContext {
+  query: string
+  start: number
+  end: number
+}
+
+interface CommandSuggestion {
+  name: string
+  description: string | null
+  pluginId: string
 }
 
 const MENTION_PATTERN = /(?:^|\s)@{([^}\n]+)}|(?:^|\s)@([^\s@]+)/g
@@ -82,6 +95,26 @@ function getActiveMentionContext(value: string, caret: number | null): MentionCo
   }
 }
 
+function getActiveCommandContext(value: string, caret: number | null): CommandContext | null {
+  if (caret === null || caret < 0) return null
+  const cursor = Math.min(caret, value.length)
+  const beforeCursor = value.slice(0, cursor)
+  const trimmedLeft = beforeCursor.trimStart()
+  const leadingWhitespaceLength = beforeCursor.length - trimmedLeft.length
+  if (!trimmedLeft.startsWith('/')) return null
+
+  const commandSpan = trimmedLeft.slice(1)
+  if (commandSpan.length === 0) {
+    return { query: '', start: leadingWhitespaceLength, end: cursor }
+  }
+  if (/\s/.test(commandSpan)) return null
+  return {
+    query: commandSpan.toLowerCase(),
+    start: leadingWhitespaceLength,
+    end: cursor,
+  }
+}
+
 export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props) {
   const [input, setInput] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
@@ -89,12 +122,22 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([])
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
   const [mentionLoading, setMentionLoading] = useState(false)
+  const [commandContext, setCommandContext] = useState<CommandContext | null>(null)
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mentionRequestRef = useRef(0)
+  const pluginCatalog = usePluginCatalog()
 
-  const updateMentionContextFromCursor = useCallback((value: string, caret: number | null) => {
-    if (isRunning || !workingDirectory) {
+  const updateInputContextsFromCursor = useCallback((value: string, caret: number | null) => {
+    if (isRunning) {
+      setMentionContext(null)
+      setCommandContext(null)
+      return
+    }
+
+    setCommandContext(getActiveCommandContext(value, caret))
+    if (!workingDirectory) {
       setMentionContext(null)
       return
     }
@@ -150,6 +193,23 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
     }
   }, [mentionContext?.query, workingDirectory])
 
+  const commandSuggestions = useMemo<CommandSuggestion[]>(() => {
+    if (!commandContext) return []
+    const query = commandContext.query.toLowerCase()
+    return pluginCatalog.commands
+      .filter((command) => query.length === 0 || command.name.startsWith(query))
+      .slice(0, 10)
+      .map((command) => ({
+        name: command.name,
+        description: command.description,
+        pluginId: command.pluginId,
+      }))
+  }, [commandContext, pluginCatalog.commands])
+
+  useEffect(() => {
+    setSelectedCommandIndex(0)
+  }, [commandContext?.query])
+
   const insertMention = useCallback((suggestion: MentionSuggestion) => {
     if (!mentionContext) return
 
@@ -177,6 +237,28 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
     })
   }, [input, mentionContext])
 
+  const insertCommand = useCallback((suggestion: CommandSuggestion) => {
+    if (!commandContext) return
+
+    const token = `/${suggestion.name}`
+    const before = input.slice(0, commandContext.start)
+    const after = input.slice(commandContext.end)
+    const needsTrailingSpace = after.length === 0 || !/^\s/.test(after)
+    const nextValue = `${before}${token}${needsTrailingSpace ? ' ' : ''}${after}`
+    const nextCursor = commandContext.start + token.length + (needsTrailingSpace ? 1 : 0)
+
+    setInput(nextValue)
+    setCommandContext(null)
+    setSelectedCommandIndex(0)
+
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(nextCursor, nextCursor)
+    })
+  }, [commandContext, input])
+
   const handleSend = useCallback(() => {
     const trimmed = input.trim()
     if (!trimmed && attachedFiles.length === 0) return
@@ -193,6 +275,8 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
     setMentionSuggestions([])
     setSelectedMentionIndex(0)
     setMentionLoading(false)
+    setCommandContext(null)
+    setSelectedCommandIndex(0)
 
     // Re-focus the textarea
     setTimeout(() => textareaRef.current?.focus(), 0)
@@ -200,6 +284,35 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!isRunning && commandContext && !mentionContext) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          if (commandSuggestions.length > 0) {
+            setSelectedCommandIndex((prev) => (prev + 1) % commandSuggestions.length)
+          }
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          if (commandSuggestions.length > 0) {
+            setSelectedCommandIndex((prev) => (prev - 1 + commandSuggestions.length) % commandSuggestions.length)
+          }
+          return
+        }
+        if (e.key === 'Tab' && commandSuggestions.length > 0) {
+          e.preventDefault()
+          const selected = commandSuggestions[selectedCommandIndex] ?? commandSuggestions[0]
+          if (selected) insertCommand(selected)
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setCommandContext(null)
+          setSelectedCommandIndex(0)
+          return
+        }
+      }
+
       if (!isRunning && mentionContext) {
         if (e.key === 'ArrowDown') {
           e.preventDefault()
@@ -238,7 +351,18 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
         }
       }
     },
-    [handleSend, insertMention, isRunning, mentionContext, mentionSuggestions, selectedMentionIndex]
+    [
+      commandContext,
+      commandSuggestions,
+      handleSend,
+      insertCommand,
+      insertMention,
+      isRunning,
+      mentionContext,
+      mentionSuggestions,
+      selectedCommandIndex,
+      selectedMentionIndex,
+    ]
   )
 
   const handleFileSelect = useCallback(() => {
@@ -283,6 +407,11 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
     mentionContext
       && workingDirectory
       && (mentionLoading || mentionSuggestions.length > 0 || mentionContext.query.length > 0)
+  )
+  const showCommandMenu = Boolean(
+    commandContext
+      && !mentionContext
+      && (commandSuggestions.length > 0 || commandContext.query.length > 0)
   )
 
   return (
@@ -394,10 +523,10 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
             onChange={(e) => {
               const nextValue = e.target.value
               setInput(nextValue)
-              updateMentionContextFromCursor(nextValue, e.target.selectionStart)
+              updateInputContextsFromCursor(nextValue, e.target.selectionStart)
             }}
             onSelect={(e) => {
-              updateMentionContextFromCursor(e.currentTarget.value, e.currentTarget.selectionStart)
+              updateInputContextsFromCursor(e.currentTarget.value, e.currentTarget.selectionStart)
             }}
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
@@ -425,6 +554,62 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
               target.style.height = `${Math.min(target.scrollHeight, 120)}px`
             }}
           />
+
+          {showCommandMenu && (
+            <div
+              className="glass-panel"
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 'calc(100% + 8px)',
+                borderRadius: 8,
+                overflow: 'hidden',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                zIndex: 42,
+              }}
+            >
+              {commandSuggestions.length === 0 && (
+                <div style={{ padding: '6px 10px', fontSize: 11, color: '#595653' }}>
+                  No commands match /{commandContext?.query}
+                </div>
+              )}
+              {commandSuggestions.map((suggestion, index) => (
+                <button
+                  key={`${suggestion.pluginId}:${suggestion.name}`}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    insertCommand(suggestion)
+                  }}
+                  className="hover-row"
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '6px 10px',
+                    border: 'none',
+                    background: index === selectedCommandIndex ? 'rgba(76,137,217,0.14)' : 'transparent',
+                    color: '#9A9692',
+                    fontFamily: 'inherit',
+                    fontSize: 11,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                  title={suggestion.description ?? suggestion.pluginId}
+                >
+                  <span style={{ color: '#4C89D9', fontWeight: 700, width: 12, textAlign: 'center' }}>/</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {suggestion.name}
+                  </span>
+                  <span style={{ color: '#595653', fontSize: 10 }}>
+                    {suggestion.description ?? suggestion.pluginId}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {showMentionMenu && (
             <div
@@ -509,7 +694,7 @@ export function ChatInput({ onSend, isRunning, onStop, workingDirectory }: Props
       </div>
 
       <div style={{ color: '#595653', fontSize: 10, marginTop: 6, textAlign: 'center', opacity: 0.4 }}>
-        Enter send &middot; Shift+Enter newline &middot; Paste images &middot; @file to reference
+        Enter send &middot; Shift+Enter newline &middot; Tab complete /command &middot; Paste images &middot; @file
       </div>
     </div>
   )
