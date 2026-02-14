@@ -72,6 +72,7 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
   const updateAgent = useAgentStore((s) => s.updateAgent)
   const getNextDeskIndex = useAgentStore((s) => s.getNextDeskIndex)
   const addEvent = useAgentStore((s) => s.addEvent)
+  const addToast = useAgentStore((s) => s.addToast)
   const updateChatSession = useAgentStore((s) => s.updateChatSession)
   const chatSession = useAgentStore(
     (s) => s.chatSessions.find((session) => session.id === chatSessionId) ?? null
@@ -133,18 +134,27 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
   }, [scopeId, getHistory, hasStartedConversation, isHistoryLoaded, loadHistory])
 
   // Persist a message to memories (fire-and-forget)
-  const persistMessage = useCallback((content: string, role: string) => {
+  const persistMessage = useCallback((
+    content: string,
+    role: string,
+    context?: { directory?: string | null; scopeId?: string; scopeName?: string }
+  ) => {
+    const directory = context?.directory ?? workingDir
+    const derivedScope = directory ? matchScope(directory, scopes) : null
+    const nextScopeId = context?.scopeId ?? derivedScope?.id ?? scopeId
+    const nextScopeName = context?.scopeName ?? derivedScope?.name ?? scopeName
+
     window.electronAPI.memories.addChatMessage({
       content,
       role,
-      scopeId,
-      scopeName,
-      workspacePath: workingDir ?? '',
+      scopeId: nextScopeId,
+      scopeName: nextScopeName,
+      workspacePath: directory ?? '',
     }).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
       console.error(`[ChatPanel] Failed to persist message: ${msg}`)
     })
-  }, [scopeId, scopeName, workingDir])
+  }, [scopeId, scopeName, scopes, workingDir])
 
   // Keep chat session directory synced to workspace until the first message.
   // User-picked custom dirs are never overwritten by sidebar folder changes.
@@ -179,22 +189,26 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
     updateChatSession(chatSessionId, { scopeId: nextScopeId })
   }, [chatSession, chatSessionId, currentScope?.id, updateChatSession])
 
+  const applyDirectorySelection = useCallback((selected: string) => {
+    if (chatSession) {
+      updateChatSession(chatSessionId, {
+        workingDirectory: selected,
+        directoryMode: selected === workspaceRoot ? 'workspace' : 'custom',
+      })
+    } else {
+      setFallbackWorkingDir(selected)
+    }
+  }, [chatSession, chatSessionId, updateChatSession, workspaceRoot])
+
   const handleChangeWorkingDir = useCallback(async () => {
     try {
       const selected = await window.electronAPI.fs.openFolderDialog()
       if (!selected) return
-      if (chatSession) {
-        updateChatSession(chatSessionId, {
-          workingDirectory: selected,
-          directoryMode: selected === workspaceRoot ? 'workspace' : 'custom',
-        })
-      } else {
-        setFallbackWorkingDir(selected)
-      }
+      applyDirectorySelection(selected)
     } catch (err) {
       console.error('[ChatPanel] Failed to change working directory:', err)
     }
-  }, [chatSession, chatSessionId, updateChatSession, workspaceRoot])
+  }, [applyDirectorySelection])
 
   const handleSyncToWorkspace = useCallback(() => {
     if (chatSession) {
@@ -211,17 +225,12 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
     (path: string) => {
       if (path === workspaceRoot) {
         handleSyncToWorkspace()
-      } else if (chatSession) {
-        updateChatSession(chatSessionId, {
-          workingDirectory: path,
-          directoryMode: 'custom',
-        })
       } else {
-        setFallbackWorkingDir(path)
+        applyDirectorySelection(path)
       }
       setShowRecentMenu(false)
     },
-    [chatSession, chatSessionId, handleSyncToWorkspace, updateChatSession, workspaceRoot]
+    [applyDirectorySelection, handleSyncToWorkspace, workspaceRoot]
   )
 
   // Auto-scroll to bottom on new messages
@@ -484,6 +493,29 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
 
   const handleSend = useCallback(
     async (message: string, files?: File[]) => {
+      let effectiveWorkingDir = workingDir
+      if (!effectiveWorkingDir) {
+        try {
+          const selected = await window.electronAPI.fs.openFolderDialog()
+          if (!selected) {
+            addToast({
+              type: 'error',
+              message: 'Select a folder before starting this chat.',
+            })
+            return
+          }
+          applyDirectorySelection(selected)
+          effectiveWorkingDir = selected
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          addToast({
+            type: 'error',
+            message: `Failed to choose folder: ${errMsg}`,
+          })
+          return
+        }
+      }
+
       // Build the prompt with file context
       let prompt = message
       if (files && files.length > 0) {
@@ -527,7 +559,7 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
       ])
 
       // Persist user message to memories
-      persistMessage(message, 'user')
+      persistMessage(message, 'user', { directory: effectiveWorkingDir })
 
       setStatus('running')
 
@@ -597,7 +629,7 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
       try {
         const result = await window.electronAPI.claude.start({
           prompt,
-          workingDirectory: workingDir ?? undefined,
+          workingDirectory: effectiveWorkingDir ?? undefined,
           dangerouslySkipPermissions: yoloMode,
         })
         setClaudeSessionId(result.sessionId)
@@ -617,7 +649,20 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
         updateAgent(agentId, { status: 'error', isClaudeRunning: false })
       }
     },
-    [addAgent, updateAgent, removeAgent, getNextDeskIndex, addEvent, workingDir, persistMessage, yoloMode, chatSessionId, updateChatSession]
+    [
+      addAgent,
+      addEvent,
+      addToast,
+      applyDirectorySelection,
+      chatSessionId,
+      getNextDeskIndex,
+      persistMessage,
+      removeAgent,
+      updateAgent,
+      updateChatSession,
+      workingDir,
+      yoloMode,
+    ]
   )
 
   const handleStop = useCallback(async () => {
