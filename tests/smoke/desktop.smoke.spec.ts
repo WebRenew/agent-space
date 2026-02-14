@@ -30,6 +30,19 @@ test('desktop smoke flows: launch, reopen, folder scope, popout, terminal', asyn
     await expect(mainWindow.locator('.slot-tab', { hasText: 'CHAT' }).first()).toBeVisible()
     await expect(mainWindow.getByRole('button', { name: 'Choose folder' }).first()).toBeVisible()
 
+    // Regression check: unsolicited Claude events must be ignored when no
+    // active Claude session is tracked in this chat panel.
+    const unsolicitedMarker = '__smoke_unsolicited_claude_event__'
+    await electronApp.evaluate(({ BrowserWindow }, marker) => {
+      const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+      win?.webContents.send('claude:event', {
+        sessionId: 'smoke-untracked-session',
+        type: 'text',
+        data: { text: marker },
+      })
+    }, unsolicitedMarker)
+    await expect(mainWindow.getByText(unsolicitedMarker)).toHaveCount(0)
+
     // Regression check: duplicate ipcMain.handle registration should self-recover
     // instead of crashing startup/reopen flows.
     await electronApp.evaluate(({ ipcMain }) => {
