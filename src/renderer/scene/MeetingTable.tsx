@@ -88,7 +88,11 @@ export function MeetingTable({ position, subagents }: MeetingTableProps) {
               ))}
             </group>
             {/* Agent character at seat position */}
-            <AgentCharacter agent={agent} position={seatPos} />
+            <AgentCharacter
+              agent={agent}
+              position={seatPos}
+              facingY={-angle + Math.PI}
+            />
           </group>
         )
       })}

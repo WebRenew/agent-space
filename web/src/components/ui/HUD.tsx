@@ -300,6 +300,17 @@ const PARTY_ACTIONS: PartyAction[] = [
   { id: "dialup_wave", label: "Dial-Up Wave", note: "Modem handshake complete", accent: "#a78bfa" },
   { id: "fax_blast", label: "Fax Blast", note: "Paper tray overclocked", accent: "#34d399" },
 ];
+const PARTY_ACTION_DURATION_MS: Record<CelebrationType, number> = {
+  confetti: 4000,
+  rocket: 3000,
+  sparkles: 2500,
+  explosion: 2000,
+  trophy: 3000,
+  pizza_party: 4200,
+  floppy_rain: 3800,
+  dialup_wave: 3400,
+  fax_blast: 3200,
+};
 
 function PartyDeck() {
   const agents = useDemoStore((s) => s.agents);
@@ -322,6 +333,15 @@ function PartyDeck() {
         activeCelebration: action.id,
         celebrationStartedAt: startedAt + index * 55,
       });
+      const duration = PARTY_ACTION_DURATION_MS[action.id] ?? 3500;
+      setTimeout(() => {
+        const current = useDemoStore.getState().agents.find((entry) => entry.id === agent.id);
+        if (!current || current.activeCelebration !== action.id) return;
+        useDemoStore.getState().updateAgent(agent.id, {
+          activeCelebration: null,
+          celebrationStartedAt: null,
+        });
+      }, duration + index * 60);
     });
 
     addToast({

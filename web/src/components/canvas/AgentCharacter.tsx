@@ -21,20 +21,45 @@ interface AgentCharacterProps {
   agent: Agent;
   position: [number, number, number];
   rotation?: [number, number, number];
+  partyTargetPosition?: [number, number, number] | null;
+  partyLookAtPosition?: [number, number, number] | null;
 }
 
 export function AgentCharacter({
   agent,
   position,
   rotation = [0, 0, 0],
+  partyTargetPosition = null,
+  partyLookAtPosition = null,
 }: AgentCharacterProps) {
+  const rootGroup = useRef<Group>(null);
   const group = useRef<Group>(null);
   const { appearance, status } = agent;
   const glow = STATUS_GLOW[status];
+  const isPizzaParty = agent.activeCelebration === "pizza_party" && partyTargetPosition !== null;
 
-  useFrame(() => {
-    if (!group.current) return;
+  useFrame((_state, delta) => {
+    if (!group.current || !rootGroup.current) return;
     const t = performance.now() / 1000;
+
+    const target = isPizzaParty ? partyTargetPosition : position;
+    const root = rootGroup.current;
+    const blend = Math.min(1, delta * (isPizzaParty ? 4.2 : 7));
+    root.position.x += (target[0] - root.position.x) * blend;
+    root.position.z += (target[2] - root.position.z) * blend;
+    root.position.y += (target[1] - root.position.y) * blend;
+
+    if (isPizzaParty && partyLookAtPosition) {
+      const yaw = Math.atan2(
+        partyLookAtPosition[0] - root.position.x,
+        partyLookAtPosition[2] - root.position.z
+      );
+      root.rotation.y += (yaw - root.rotation.y) * Math.min(1, delta * 5);
+    } else {
+      root.rotation.y += (rotation[1] - root.rotation.y) * Math.min(1, delta * 8);
+      root.rotation.x = rotation[0];
+      root.rotation.z = rotation[2];
+    }
 
     // Reset position to prevent drift between status changes
     group.current.position.x = 0;
@@ -89,7 +114,7 @@ export function AgentCharacter({
   });
 
   return (
-    <group position={position} rotation={rotation}>
+    <group ref={rootGroup} position={position} rotation={rotation}>
       <group ref={group}>
         {/* Head */}
         <group position={[0, 1.6, 0]}>

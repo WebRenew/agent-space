@@ -9,17 +9,31 @@ import { useAgentStore } from '../store/agents'
 import { useWorkspaceStore } from '../store/workspace'
 import { useWorkspaceIntelligenceStore } from '../store/workspaceIntelligence'
 import { OfficeSignals } from './OfficeSignals'
+import { PizzaParty } from './effects/PizzaParty'
 
 const COLS = 2
 const X_SPACING = 3.0
 const Z_SPACING = 3.5
 const X_OFFSET = -1.0
 const Z_OFFSET = -2.0
+const DESK_FACING_Y = Math.PI
+const PARTY_CENTER: [number, number, number] = [4.2, 0, 2.2]
+const PARTY_RADIUS = 1.25
 
 function computeDeskPosition(index: number): [number, number, number] {
   const col = index % COLS
   const row = Math.floor(index / COLS)
   return [X_OFFSET + col * X_SPACING, 0, Z_OFFSET + row * Z_SPACING]
+}
+
+function computePartySeatPosition(index: number, total: number): [number, number, number] {
+  const count = Math.max(3, total)
+  const angle = (index / count) * Math.PI * 2 - Math.PI / 2
+  return [
+    PARTY_CENTER[0] + Math.cos(angle) * PARTY_RADIUS,
+    0,
+    PARTY_CENTER[2] + Math.sin(angle) * PARTY_RADIUS,
+  ]
 }
 
 export function Office() {
@@ -64,6 +78,26 @@ export function Office() {
       position: computeDeskPosition(i)
     }))
   }, [deskCount])
+  const partyAgents = useMemo(
+    () => deskAgents
+      .filter((agent) => agent.activeCelebration === 'pizza_party')
+      .sort((a, b) => a.deskIndex - b.deskIndex),
+    [deskAgents]
+  )
+  const partySeatByAgentId = useMemo(() => {
+    const map = new Map<string, [number, number, number]>()
+    for (let index = 0; index < partyAgents.length; index += 1) {
+      map.set(
+        partyAgents[index].id,
+        computePartySeatPosition(index, partyAgents.length)
+      )
+    }
+    return map
+  }, [partyAgents])
+  const partyWaveKey = partyAgents.reduce(
+    (latest, agent) => Math.max(latest, agent.celebrationStartedAt ?? 0),
+    0
+  )
 
   return (
     <>
@@ -79,10 +113,41 @@ export function Office() {
               status={agent?.status ?? 'idle'}
               tokensUsed={(agent?.tokens_input ?? 0) + (agent?.tokens_output ?? 0)}
             />
-            {agent && <AgentCharacter agent={agent} position={position} />}
+            {agent && (
+              <AgentCharacter
+                agent={agent}
+                position={position}
+                facingY={DESK_FACING_Y}
+                partySeatPosition={partySeatByAgentId.get(agent.id) ?? null}
+                partyLookAtPosition={PARTY_CENTER}
+              />
+            )}
           </group>
         )
       })}
+
+      {partyAgents.length > 0 && (
+        <group>
+          {/* Pizza table where agents gather during a party */}
+          <mesh position={[PARTY_CENTER[0], 0.72, PARTY_CENTER[2]]} castShadow receiveShadow>
+            <cylinderGeometry args={[0.95, 0.95, 0.06, 24]} />
+            <meshStandardMaterial color="#6b4a35" roughness={0.55} />
+          </mesh>
+          <mesh position={[PARTY_CENTER[0], 0.38, PARTY_CENTER[2]]} castShadow>
+            <cylinderGeometry args={[0.11, 0.16, 0.72, 10]} />
+            <meshStandardMaterial color="#4a3728" />
+          </mesh>
+          <mesh position={[PARTY_CENTER[0], 0.02, PARTY_CENTER[2]]}>
+            <cylinderGeometry args={[0.45, 0.45, 0.04, 14]} />
+            <meshStandardMaterial color="#4a3728" />
+          </mesh>
+          <PizzaParty
+            key={`pizza-party-${partyWaveKey}`}
+            position={[PARTY_CENTER[0], -0.55, PARTY_CENTER[2]]}
+            onComplete={() => undefined}
+          />
+        </group>
+      )}
 
       <OfficeCat />
 

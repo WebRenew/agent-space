@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useDemoStore } from "@/stores/useDemoStore";
 import { AgentCharacter } from "./AgentCharacter";
 import { CelebrationEffect } from "./CelebrationEffect";
@@ -31,6 +32,18 @@ const DESK_LAYOUT: Array<{
   { position: [-3, 0, -8], rotation: [0, Math.PI, 0], facing: [-3, 0, -8.8] },
   { position: [3, 0, -8], rotation: [0, Math.PI, 0], facing: [3, 0, -8.8] },
 ];
+const PIZZA_CENTER: [number, number, number] = [0, 0, -6.35];
+const PIZZA_RADIUS = 1.75;
+
+function computePizzaSeat(index: number, total: number): [number, number, number] {
+  const count = Math.max(3, total);
+  const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
+  return [
+    PIZZA_CENTER[0] + Math.cos(angle) * PIZZA_RADIUS,
+    0,
+    PIZZA_CENTER[2] + Math.sin(angle) * PIZZA_RADIUS,
+  ];
+}
 
 function Desk({
   position,
@@ -266,6 +279,24 @@ function Plant({
 
 export function Office() {
   const agents = useDemoStore((s) => s.agents);
+  const partyAgents = useMemo(
+    () =>
+      agents
+        .filter((agent) => agent.activeCelebration === "pizza_party")
+        .sort((a, b) => a.deskIndex - b.deskIndex),
+    [agents]
+  );
+  const partySeatByAgentId = useMemo(() => {
+    const map = new Map<string, [number, number, number]>();
+    for (let index = 0; index < partyAgents.length; index += 1) {
+      map.set(partyAgents[index].id, computePizzaSeat(index, partyAgents.length));
+    }
+    return map;
+  }, [partyAgents]);
+  const partyStartedAt = partyAgents.reduce(
+    (latest, agent) => Math.max(latest, agent.celebrationStartedAt ?? 0),
+    0
+  );
 
   return (
     <group>
@@ -344,6 +375,7 @@ export function Office() {
       {agents.map((agent) => {
         const layout = DESK_LAYOUT[agent.deskIndex];
         if (!layout) return null;
+        const partyTarget = partySeatByAgentId.get(agent.id) ?? null;
         return (
           <group key={agent.id}>
             <Desk
@@ -354,9 +386,11 @@ export function Office() {
             <AgentCharacter
               agent={agent}
               position={layout.facing}
-              rotation={layout.rotation}
+              rotation={[0, 0, 0]}
+              partyTargetPosition={partyTarget}
+              partyLookAtPosition={PIZZA_CENTER}
             />
-            {agent.activeCelebration && agent.celebrationStartedAt && (
+            {agent.activeCelebration && agent.celebrationStartedAt && agent.activeCelebration !== "pizza_party" && (
               <CelebrationEffect
                 type={agent.activeCelebration}
                 startedAt={agent.celebrationStartedAt}
@@ -366,6 +400,60 @@ export function Office() {
           </group>
         );
       })}
+
+      {partyAgents.length > 0 && (
+        <group>
+          {/* Shared pizza table where agents gather */}
+          <mesh position={[PIZZA_CENTER[0], 0.72, PIZZA_CENTER[2]]} castShadow receiveShadow>
+            <cylinderGeometry args={[1.1, 1.1, 0.08, 26]} />
+            <meshStandardMaterial color="#6B4226" />
+          </mesh>
+          <mesh position={[PIZZA_CENTER[0], 0.38, PIZZA_CENTER[2]]} castShadow>
+            <cylinderGeometry args={[0.12, 0.18, 0.72, 10]} />
+            <meshStandardMaterial color="#4A2F1D" />
+          </mesh>
+          <mesh position={[PIZZA_CENTER[0], 0.03, PIZZA_CENTER[2]]}>
+            <cylinderGeometry args={[0.55, 0.55, 0.05, 14]} />
+            <meshStandardMaterial color="#4A2F1D" />
+          </mesh>
+
+          {/* Pizza boxes + visible pizza slices */}
+          <mesh position={[PIZZA_CENTER[0] - 0.22, 0.79, PIZZA_CENTER[2] - 0.08]}>
+            <boxGeometry args={[0.48, 0.04, 0.48]} />
+            <meshStandardMaterial color="#C87830" />
+          </mesh>
+          <mesh position={[PIZZA_CENTER[0] + 0.18, 0.81, PIZZA_CENTER[2] + 0.05]}>
+            <cylinderGeometry args={[0.19, 0.19, 0.02, 24]} />
+            <meshStandardMaterial color="#F4D03F" />
+          </mesh>
+          {Array.from({ length: 6 }, (_, index) => {
+            const angle = (index / 6) * Math.PI * 2;
+            return (
+              <mesh
+                key={`slice-${index}`}
+                position={[
+                  PIZZA_CENTER[0] + 0.18 + Math.cos(angle) * 0.09,
+                  0.825,
+                  PIZZA_CENTER[2] + 0.05 + Math.sin(angle) * 0.09,
+                ]}
+                rotation={[0, -angle, 0]}
+              >
+                <boxGeometry args={[0.075, 0.008, 0.03]} />
+                <meshStandardMaterial color="#C45050" />
+              </mesh>
+            );
+          })}
+
+          {partyStartedAt > 0 && (
+            <CelebrationEffect
+              key={`pizza-party-${partyStartedAt}`}
+              type="pizza_party"
+              startedAt={partyStartedAt}
+              position={PIZZA_CENTER}
+            />
+          )}
+        </group>
+      )}
 
       {/* Monitor wall */}
       <MonitorWall position={[10.8, 0, -3]} />

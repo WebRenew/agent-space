@@ -36,6 +36,18 @@ const ACTIONS: ActionButton[] = [
   },
 ]
 
+const ACTION_DURATION_MS: Record<CelebrationType, number> = {
+  confetti: 4000,
+  rocket: 3000,
+  sparkles: 2500,
+  explosion: 2000,
+  trophy: 3000,
+  pizza_party: 4200,
+  floppy_rain: 3800,
+  dialup_wave: 3400,
+  fax_blast: 3200,
+}
+
 export function CelebrationDeck() {
   const agents = useAgentStore((s) => s.agents)
   const selectedAgentId = useAgentStore((s) => s.selectedAgentId)
@@ -63,6 +75,15 @@ export function CelebrationDeck() {
         activeCelebration: action.id,
         celebrationStartedAt: baseTs + index * 60,
       })
+      const duration = ACTION_DURATION_MS[action.id] ?? 3500
+      setTimeout(() => {
+        const current = useAgentStore.getState().agents.find((entry) => entry.id === agent.id)
+        if (!current || current.activeCelebration !== action.id) return
+        useAgentStore.getState().updateAgent(agent.id, {
+          activeCelebration: null,
+          celebrationStartedAt: null,
+        })
+      }, duration + index * 70)
       addEvent({
         agentId: agent.id,
         agentName: agent.name,
@@ -148,4 +169,3 @@ export function CelebrationDeck() {
     </div>
   )
 }
-

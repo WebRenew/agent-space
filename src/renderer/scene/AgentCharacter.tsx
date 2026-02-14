@@ -11,7 +11,6 @@ import { Rocket } from './effects/Rocket'
 import { Sparkles } from './effects/Sparkles'
 import { Explosion } from './effects/Explosion'
 import { Trophy } from './effects/Trophy'
-import { PizzaParty } from './effects/PizzaParty'
 import { FloppyRain } from './effects/FloppyRain'
 import { DialupWave } from './effects/DialupWave'
 import { FaxBlast } from './effects/FaxBlast'
@@ -20,6 +19,9 @@ import { OfficePlant } from './effects/OfficePlant'
 interface AgentCharacterProps {
   agent: Agent
   position: [number, number, number]
+  facingY?: number
+  partySeatPosition?: [number, number, number] | null
+  partyLookAtPosition?: [number, number, number] | null
 }
 
 function Hair({ appearance }: { appearance: AgentAppearance }) {
@@ -117,7 +119,13 @@ function Hair({ appearance }: { appearance: AgentAppearance }) {
   }
 }
 
-export function AgentCharacter({ agent, position }: AgentCharacterProps) {
+export function AgentCharacter({
+  agent,
+  position,
+  facingY,
+  partySeatPosition,
+  partyLookAtPosition,
+}: AgentCharacterProps) {
   const groupRef = useRef<Group>(null)
   const headRef = useRef<Group>(null)
   const leftArmRef = useRef<Group>(null)
@@ -135,8 +143,9 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
   const charPos = useMemo((): [number, number, number] => {
     return [position[0], position[1], position[2] + 0.7]
   }, [position])
+  const baseFacingY = facingY ?? Math.PI
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const t = state.clock.elapsedTime
     if (!groupRef.current || !headRef.current) return
 
@@ -145,6 +154,38 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
     const rightArm = rightArmRef.current
     const body = bodyRef.current
 
+    if (partySeatPosition && agent.activeCelebration === 'pizza_party') {
+      const targetX = partySeatPosition[0]
+      const targetY = partySeatPosition[1]
+      const targetZ = partySeatPosition[2]
+
+      const current = groupRef.current.position
+      const dx = targetX - current.x
+      const dz = targetZ - current.z
+      const dist = Math.hypot(dx, dz)
+      const blend = Math.min(1, delta * 4.8)
+      current.x += dx * blend
+      current.z += dz * blend
+      current.y += (targetY - current.y) * blend
+      current.y = targetY + 0.02 + Math.abs(Math.sin(t * 8)) * 0.03 * Math.min(1, dist * 2.3)
+
+      const lookYaw = dist > 0.1
+        ? Math.atan2(dx, dz)
+        : partyLookAtPosition
+          ? Math.atan2(
+            partyLookAtPosition[0] - current.x,
+            partyLookAtPosition[2] - current.z
+          )
+          : baseFacingY
+      groupRef.current.rotation.y = lookYaw
+
+      head.rotation.z = Math.sin(t * 4.5) * 0.06
+      if (leftArm) leftArm.rotation.x = -0.5 + Math.sin(t * 5.2) * 0.25
+      if (rightArm) rightArm.rotation.x = -0.5 + Math.cos(t * 5.2) * 0.25
+      if (body) body.rotation.x = -0.05
+      return
+    }
+
     switch (agent.status) {
       case 'idle': {
         groupRef.current.position.y = charPos[1] + Math.sin(t * 1.5) * 0.02
@@ -152,7 +193,7 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
         if (leftArm) leftArm.rotation.x = 0
         if (rightArm) rightArm.rotation.x = 0
         if (body) body.rotation.x = 0
-        groupRef.current.rotation.y = Math.sin(t * 0.3) * 0.1
+        groupRef.current.rotation.y = baseFacingY + Math.sin(t * 0.3) * 0.1
         break
       }
       case 'thinking': {
@@ -163,13 +204,14 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
         if (leftArm) leftArm.rotation.x = -0.3 + Math.sin(t * 3) * 0.2
         if (rightArm) rightArm.rotation.x = -0.3 + Math.cos(t * 3) * 0.2
         if (body) body.rotation.x = 0
+        groupRef.current.rotation.y = baseFacingY + Math.sin(t * 0.9) * 0.08
         break
       }
       case 'streaming': {
         groupRef.current.position.y = charPos[1]
         groupRef.current.position.x = charPos[0]
         groupRef.current.position.z = charPos[2]
-        groupRef.current.rotation.y = 0
+        groupRef.current.rotation.y = baseFacingY
         head.rotation.z = Math.sin(t * 4) * 0.03
         if (leftArm) leftArm.rotation.x = -0.8 + Math.sin(t * 12) * 0.15
         if (rightArm) rightArm.rotation.x = -0.8 + Math.cos(t * 12) * 0.15
@@ -181,7 +223,7 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
         groupRef.current.position.y = charPos[1] + 0.1 + Math.abs(Math.sin(t * 4)) * 0.03
         groupRef.current.position.x = charPos[0] + Math.sin(cycle) * 0.6
         groupRef.current.position.z = charPos[2] - 0.3
-        groupRef.current.rotation.y = Math.sin(cycle) * 0.5
+        groupRef.current.rotation.y = baseFacingY + Math.sin(cycle) * 0.5
         if (leftArm) leftArm.rotation.x = Math.sin(t * 4) * 0.4
         if (rightArm) rightArm.rotation.x = Math.cos(t * 4) * 0.4
         if (body) body.rotation.x = 0
@@ -191,7 +233,7 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
         groupRef.current.position.y = charPos[1] - 0.02
         groupRef.current.position.x = charPos[0]
         groupRef.current.position.z = charPos[2]
-        groupRef.current.rotation.y = 0
+        groupRef.current.rotation.y = baseFacingY
         head.rotation.z = Math.sin(t * 0.5) * 0.08
         if (leftArm) leftArm.rotation.x = 0
         if (rightArm) rightArm.rotation.x = -0.6 + Math.sin(t * 6) * 0.08
@@ -202,7 +244,7 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
         groupRef.current.position.y = charPos[1] + 0.05 + Math.sin(t * 8) * 0.02
         groupRef.current.position.x = charPos[0]
         groupRef.current.position.z = charPos[2]
-        groupRef.current.rotation.y = Math.sin(t * 10) * 0.08
+        groupRef.current.rotation.y = baseFacingY + Math.sin(t * 10) * 0.08
         head.rotation.z = Math.sin(t * 6) * 0.15
         if (leftArm) leftArm.rotation.x = -2.5 + Math.sin(t * 8) * 0.2
         if (rightArm) rightArm.rotation.x = -2.5 + Math.cos(t * 8) * 0.2
@@ -213,7 +255,7 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
         groupRef.current.position.y = charPos[1]
         groupRef.current.position.x = charPos[0]
         groupRef.current.position.z = charPos[2]
-        groupRef.current.rotation.y = 0
+        groupRef.current.rotation.y = baseFacingY
         head.rotation.z = 0
         if (leftArm) leftArm.rotation.x = -2.8
         if (rightArm) rightArm.rotation.x = -2.8
@@ -387,17 +429,6 @@ export function AgentCharacter({ agent, position }: AgentCharacterProps) {
       )}
       {agent.activeCelebration === 'trophy' && (
         <Trophy
-          position={[charPos[0], charPos[1], charPos[2]]}
-          onComplete={() => {
-            useAgentStore.getState().updateAgent(agent.id, {
-              activeCelebration: null,
-              celebrationStartedAt: null
-            })
-          }}
-        />
-      )}
-      {agent.activeCelebration === 'pizza_party' && (
-        <PizzaParty
           position={[charPos[0], charPos[1], charPos[2]]}
           onComplete={() => {
             useAgentStore.getState().updateAgent(agent.id, {
