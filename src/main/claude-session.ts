@@ -121,6 +121,17 @@ function getEnhancedEnv(): NodeJS.ProcessEnv {
 
 let resolvedClaudePath: string | null = null
 
+export function getClaudeBinaryPath(): string {
+  if (!resolvedClaudePath) {
+    resolvedClaudePath = resolveClaudeBinary()
+  }
+  return resolvedClaudePath
+}
+
+export function getClaudeEnvironment(): NodeJS.ProcessEnv {
+  return getEnhancedEnv()
+}
+
 function checkClaudeAvailability(): {
   available: boolean
   binaryPath: string | null

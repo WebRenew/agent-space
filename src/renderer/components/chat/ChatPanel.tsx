@@ -24,12 +24,49 @@ const BINARY_EXTENSIONS = new Set([
   'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
   'dmg', 'iso', 'bin',
 ])
+const MENTION_PATTERN = /(?:^|\s)@{([^}\n]+)}|(?:^|\s)@([^\s@]+)/g
+const MAX_REFERENCED_FILES = 12
 
 let chatMessageCounter = 0
 let chatAgentCounter = 0
 
 function nextMessageId(): string {
   return `msg-${++chatMessageCounter}`
+}
+
+function normalizeMentionPath(value: string): string {
+  return value
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/^\/+/, '')
+}
+
+function toForwardSlashes(value: string): string {
+  return value.replace(/\\/g, '/')
+}
+
+function toRelativePathIfInside(rootDir: string, absolutePath: string): string | null {
+  const normalizedRoot = toForwardSlashes(rootDir).replace(/\/+$/, '')
+  const normalizedPath = toForwardSlashes(absolutePath)
+  if (normalizedPath === normalizedRoot) return ''
+  if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
+    return normalizedPath.slice(normalizedRoot.length + 1)
+  }
+  return null
+}
+
+function extractMentionPaths(message: string): string[] {
+  const mentions: string[] = []
+  const seen = new Set<string>()
+  for (const match of message.matchAll(MENTION_PATTERN)) {
+    const raw = match[1] ?? match[2] ?? ''
+    const normalized = normalizeMentionPath(raw)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    mentions.push(normalized)
+  }
+  return mentions
 }
 
 interface UsageSnapshot {
@@ -681,8 +718,83 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
     return unsub
   }, [addEvent, applyUsageSnapshot, clearSubagentsForParent, persistMessage, setActiveClaudeSession, soundsEnabled, updateAgent])
 
+  const resolveMentionedFiles = useCallback(async (rootDir: string, mentions: string[]) => {
+    const normalizedMentions = Array.from(
+      new Set(mentions.map((mention) => normalizeMentionPath(mention).toLowerCase()))
+    )
+      .filter(Boolean)
+      .slice(0, MAX_REFERENCED_FILES)
+
+    if (normalizedMentions.length === 0) {
+      return {
+        resolved: [] as Array<{ mention: string; path: string; relPath: string }>,
+        unresolved: [] as string[],
+      }
+    }
+
+    const lookups = await Promise.all(
+      normalizedMentions.map(async (mention) => {
+        try {
+          const hits = await window.electronAPI.fs.search(rootDir, mention, 25)
+          return { mention, hits }
+        } catch (err) {
+          console.error(`[ChatPanel] Failed to resolve @${mention}:`, err)
+          return {
+            mention,
+            hits: [] as Array<{ path: string; name: string; isDirectory: boolean }>,
+          }
+        }
+      })
+    )
+
+    const resolved: Array<{ mention: string; path: string; relPath: string }> = []
+    const unresolved: string[] = []
+    const seenPaths = new Set<string>()
+
+    for (const { mention, hits } of lookups) {
+      let bestMatch: { path: string; relPath: string; score: number } | null = null
+
+      for (let i = 0; i < hits.length; i++) {
+        const hit = hits[i]
+        if (hit.isDirectory) continue
+
+        const relPathRaw = toRelativePathIfInside(rootDir, hit.path) ?? hit.name
+        const relPath = normalizeMentionPath(relPathRaw)
+        if (!relPath) continue
+
+        const relLower = relPath.toLowerCase()
+        const nameLower = hit.name.toLowerCase()
+        let score = 0
+
+        if (relLower === mention) score += 500
+        if (relLower.endsWith(`/${mention}`)) score += 320
+        if (nameLower === mention) score += 220
+        if (relLower.includes(mention)) score += 100
+        score += Math.max(0, 30 - i)
+
+        if (!bestMatch || score > bestMatch.score) {
+          bestMatch = { path: hit.path, relPath, score }
+        }
+      }
+
+      if (!bestMatch) {
+        unresolved.push(mention)
+        continue
+      }
+      if (seenPaths.has(bestMatch.path)) continue
+      seenPaths.add(bestMatch.path)
+      resolved.push({
+        mention,
+        path: bestMatch.path,
+        relPath: bestMatch.relPath,
+      })
+    }
+
+    return { resolved, unresolved }
+  }, [])
+
   const handleSend = useCallback(
-    async (message: string, files?: File[]) => {
+    async (message: string, files?: File[], mentions?: string[]) => {
       let effectiveWorkingDir = workingDir
       if (!effectiveWorkingDir) {
         try {
@@ -708,6 +820,37 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
 
       // Build the prompt with file context
       let prompt = message
+      const mentionTokens = mentions && mentions.length > 0
+        ? mentions
+        : extractMentionPaths(message)
+      const referenceNotes: string[] = []
+
+      if (mentionTokens.length > 0 && effectiveWorkingDir) {
+        const { resolved, unresolved } = await resolveMentionedFiles(effectiveWorkingDir, mentionTokens)
+        const referencedContents: string[] = []
+
+        for (const ref of resolved) {
+          try {
+            const fileData = await window.electronAPI.fs.readFile(ref.path)
+            const safeText = fileData.content.replace(/\0/g, '')
+            referencedContents.push(`\n--- Referenced file: ${ref.relPath} ---\n${safeText}\n--- End: ${ref.relPath} ---`)
+            if (fileData.truncated) {
+              referenceNotes.push(`${ref.relPath} (truncated to 2MB preview)`)
+            }
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err)
+            referenceNotes.push(`${ref.relPath} (failed to read: ${errMsg})`)
+          }
+        }
+
+        if (referencedContents.length > 0) {
+          prompt = `${prompt}\n\nReferenced files via @:${referencedContents.join('\n')}`
+        }
+        if (unresolved.length > 0) {
+          referenceNotes.push(`Unresolved @ references: ${unresolved.map((entry) => `@${entry}`).join(', ')}`)
+        }
+      }
+
       if (files && files.length > 0) {
         const fileContents: string[] = []
         const binaryFiles: string[] = []
@@ -730,11 +873,14 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
           }
         }
         if (fileContents.length > 0) {
-          prompt = `${message}\n\nAttached files:${fileContents.join('\n')}`
+          prompt = `${prompt}\n\nAttached files:${fileContents.join('\n')}`
         }
         if (binaryFiles.length > 0) {
           prompt = `${prompt}\n\n[Attached binary files: ${binaryFiles.join(', ')} — binary content cannot be sent via CLI]`
         }
+      }
+      if (referenceNotes.length > 0) {
+        prompt = `${prompt}\n\n[Reference notes: ${referenceNotes.join(' | ')}]`
       }
 
       // Add user message to chat
@@ -861,6 +1007,7 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
       removeAgent,
       updateAgent,
       updateChatSession,
+      resolveMentionedFiles,
       workingDir,
       yoloMode,
     ]
@@ -1218,6 +1365,7 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
           onSend={handleSend}
           isRunning={isRunning}
           onStop={handleStop}
+          workingDirectory={workingDir ?? null}
         />
       </div>
     </div>

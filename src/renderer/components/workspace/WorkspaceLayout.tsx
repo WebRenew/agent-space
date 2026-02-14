@@ -354,21 +354,95 @@ function SlotPanelContent({
 function TopNav({
   visiblePanels,
   onTogglePanel,
+  onOpenFolder,
+  onFocusFileSearch,
+  onFocusFileExplorer,
+  onNewTerminal,
+  onCloseActivePanel,
+  onFocusChatInput,
+  onResetLayout,
 }: {
   visiblePanels: Set<PanelId>
   onTogglePanel: (id: PanelId) => void
+  onOpenFolder: () => void
+  onFocusFileSearch: () => void
+  onFocusFileExplorer: () => void
+  onNewTerminal: () => void
+  onCloseActivePanel: () => void
+  onFocusChatInput: () => void
+  onResetLayout: () => void
 }) {
   const agentCount = useAgentStore((s) => s.agents.length)
   const eventCount = useAgentStore((s) => s.events.length)
   const openSettings = useSettingsStore((s) => s.openSettings)
   const openHelp = useSettingsStore((s) => s.openHelp)
   const workspaceRoot = useWorkspaceStore((s) => s.rootPath)
+  const recentFolders = useWorkspaceStore((s) => s.recentFolders)
+  const openWorkspaceFolder = useWorkspaceStore((s) => s.openFolder)
+  const closeWorkspaceFolder = useWorkspaceStore((s) => s.closeFolder)
   const workspaceName = workspaceRoot?.split('/').pop() ?? null
+  const isMac = navigator.platform.toUpperCase().includes('MAC')
+  const modLabel = isMac ? 'Cmd' : 'Ctrl'
   const [timeStr, setTimeStr] = useState(() =>
     new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
   )
-  const [showViewMenu, setShowViewMenu] = useState(false)
-  const viewMenuRef = useRef<HTMLDivElement>(null)
+  const [openMenu, setOpenMenu] = useState<'file' | 'edit' | 'view' | null>(null)
+  const menuRootRef = useRef<HTMLDivElement>(null)
+  const recentMenuItems = recentFolders.slice(0, 6)
+
+  const closeMenus = useCallback(() => {
+    setOpenMenu(null)
+  }, [])
+
+  const toggleMenu = useCallback((menu: 'file' | 'edit' | 'view') => {
+    setOpenMenu((current) => (current === menu ? null : menu))
+  }, [])
+
+  const runMenuAction = useCallback((action: () => void | Promise<void>) => {
+    closeMenus()
+    try {
+      const result = action()
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        void (result as Promise<unknown>).catch((err) => {
+          console.error('[TopNav] Menu action failed:', err)
+        })
+      }
+    } catch (err) {
+      console.error('[TopNav] Menu action failed:', err)
+    }
+  }, [closeMenus])
+
+  const runEditCommand = useCallback((command: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => {
+    const active = document.activeElement
+
+    if (command === 'selectAll') {
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+        active.focus()
+        active.select()
+        closeMenus()
+        return
+      }
+      if (active instanceof HTMLElement && active.isContentEditable) {
+        const selection = window.getSelection()
+        if (selection) {
+          const range = document.createRange()
+          range.selectNodeContents(active)
+          selection.removeAllRanges()
+          selection.addRange(range)
+          closeMenus()
+          return
+        }
+      }
+    }
+
+    try {
+      document.execCommand(command)
+    } catch (err) {
+      console.error(`[TopNav] Edit command "${command}" failed:`, err)
+    }
+
+    closeMenus()
+  }, [closeMenus])
 
   useEffect(() => {
     const tick = setInterval(() => {
@@ -377,17 +451,29 @@ function TopNav({
     return () => clearInterval(tick)
   }, [])
 
-  // Close View menu on outside click
+  // Close menu on outside click
   useEffect(() => {
-    if (!showViewMenu) return
+    if (!openMenu) return
     const handler = (e: MouseEvent) => {
-      if (viewMenuRef.current && !viewMenuRef.current.contains(e.target as Node)) {
-        setShowViewMenu(false)
+      if (menuRootRef.current && !menuRootRef.current.contains(e.target as Node)) {
+        closeMenus()
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [showViewMenu])
+  }, [openMenu, closeMenus])
+
+  useEffect(() => {
+    if (!openMenu) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeMenus()
+      }
+    }
+    document.addEventListener('keydown', handler, true)
+    return () => document.removeEventListener('keydown', handler, true)
+  }, [openMenu, closeMenus])
 
   return (
     <header
@@ -405,26 +491,258 @@ function TopNav({
           <span style={{ color: '#9A9692', fontSize: 12, fontWeight: 500 }}>{workspaceName}</span>
         )}
         <span style={{ color: '#595653', fontSize: 'inherit' }}>|</span>
-        <nav style={{ display: 'flex', gap: 14 }}>
-          {['File', 'Edit'].map((item) => (
-            <span key={item} className="nav-item" style={{ color: '#74747C', fontSize: 'inherit' }}>{item}</span>
-          ))}
-          {/* View dropdown */}
-          <div ref={viewMenuRef} style={{ position: 'relative', zIndex: 9999 }}>
+        <nav ref={menuRootRef} style={{ display: 'flex', gap: 14, position: 'relative' }}>
+          {openMenu && (
+            <div
+              style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+              onClick={closeMenus}
+            />
+          )}
+
+          <div style={{ position: 'relative', zIndex: 9999 }}>
             <span
               className="nav-item"
-              onClick={() => setShowViewMenu((v) => !v)}
+              onClick={() => toggleMenu('file')}
+              style={{ color: '#74747C', fontSize: 'inherit' }}
+            >
+              File
+            </span>
+            {openMenu === 'file' && (
+              <>
+                <div
+                  style={{
+                    position: 'absolute', top: 30, left: -8, zIndex: 9999,
+                    minWidth: 190, padding: '4px 0', borderRadius: 6,
+                    background: '#1A1A19', border: '1px solid rgba(89,86,83,0.3)',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    onClick={() => runMenuAction(onOpenFolder)}
+                    className="hover-row"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: '#9A9692', flex: 1 }}>Open Folder...</span>
+                    <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                      {SHORTCUTS.openFolder.label}
+                    </span>
+                  </div>
+
+                  {recentMenuItems.length > 0 && (
+                    <>
+                      <div style={{ height: 1, margin: '4px 6px', background: 'rgba(89,86,83,0.25)' }} />
+                      <div style={{ padding: '2px 12px 4px', color: '#595653', fontSize: 10, letterSpacing: 0.6 }}>
+                        RECENT
+                      </div>
+                    </>
+                  )}
+                  {recentMenuItems.map((folderPath) => (
+                    <div
+                      key={folderPath}
+                      onClick={() => runMenuAction(() => openWorkspaceFolder(folderPath))}
+                      className="hover-row"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                      }}
+                      title={folderPath}
+                    >
+                      <span style={{ color: '#9A9692', flex: 1 }}>
+                        {folderPath.split('/').filter(Boolean).pop() ?? folderPath}
+                      </span>
+                      <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                        recent
+                      </span>
+                    </div>
+                  ))}
+
+                  <div style={{ height: 1, margin: '4px 6px', background: 'rgba(89,86,83,0.25)' }} />
+                  <div
+                    onClick={() => runMenuAction(onFocusFileSearch)}
+                    className="hover-row"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: '#9A9692', flex: 1 }}>Search Files</span>
+                    <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                      {SHORTCUTS.fileSearch.label}
+                    </span>
+                  </div>
+                  <div
+                    onClick={() => runMenuAction(onFocusFileExplorer)}
+                    className="hover-row"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: '#9A9692', flex: 1 }}>File Explorer</span>
+                    <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                      {SHORTCUTS.fileExplorer.label}
+                    </span>
+                  </div>
+                  <div
+                    onClick={() => runMenuAction(onNewTerminal)}
+                    className="hover-row"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: '#9A9692', flex: 1 }}>New Terminal</span>
+                    <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                      {SHORTCUTS.newTerminal.label}
+                    </span>
+                  </div>
+                  <div
+                    onClick={() => runMenuAction(onCloseActivePanel)}
+                    className="hover-row"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: '#9A9692', flex: 1 }}>Close Active Panel</span>
+                    <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                      {SHORTCUTS.closePanel.label}
+                    </span>
+                  </div>
+                  {workspaceRoot && (
+                    <div
+                      onClick={() => runMenuAction(closeWorkspaceFolder)}
+                      className="hover-row"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                      }}
+                    >
+                      <span style={{ color: '#9A9692', flex: 1 }}>Close Folder</span>
+                    </div>
+                  )}
+                  <div style={{ height: 1, margin: '4px 6px', background: 'rgba(89,86,83,0.25)' }} />
+                  <div
+                    onClick={() => runMenuAction(openSettings)}
+                    className="hover-row"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: '#9A9692', flex: 1 }}>Settings...</span>
+                    <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                      {SHORTCUTS.openSettings.label}
+                    </span>
+                  </div>
+                  <div
+                    onClick={() => runMenuAction(openHelp)}
+                    className="hover-row"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: '#9A9692', flex: 1 }}>Help</span>
+                    <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                      {SHORTCUTS.openHelp.label}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div style={{ position: 'relative', zIndex: 9999 }}>
+            <span
+              className="nav-item"
+              onClick={() => toggleMenu('edit')}
+              style={{ color: '#74747C', fontSize: 'inherit' }}
+            >
+              Edit
+            </span>
+            {openMenu === 'edit' && (
+              <>
+                <div
+                  style={{
+                    position: 'absolute', top: 30, left: -8, zIndex: 9999,
+                    minWidth: 190, padding: '4px 0', borderRadius: 6,
+                    background: '#1A1A19', border: '1px solid rgba(89,86,83,0.3)',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {[
+                    { label: 'Undo', shortcut: `${modLabel}+Z`, cmd: 'undo' as const },
+                    { label: 'Redo', shortcut: `${modLabel}+Shift+Z`, cmd: 'redo' as const },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      onClick={() => runEditCommand(item.cmd)}
+                      className="hover-row"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                      }}
+                    >
+                      <span style={{ color: '#9A9692', flex: 1 }}>{item.label}</span>
+                      <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>{item.shortcut}</span>
+                    </div>
+                  ))}
+                  <div style={{ height: 1, margin: '4px 6px', background: 'rgba(89,86,83,0.25)' }} />
+                  {[
+                    { label: 'Cut', shortcut: `${modLabel}+X`, cmd: 'cut' as const },
+                    { label: 'Copy', shortcut: `${modLabel}+C`, cmd: 'copy' as const },
+                    { label: 'Paste', shortcut: `${modLabel}+V`, cmd: 'paste' as const },
+                    { label: 'Select All', shortcut: `${modLabel}+A`, cmd: 'selectAll' as const },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      onClick={() => runEditCommand(item.cmd)}
+                      className="hover-row"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                      }}
+                    >
+                      <span style={{ color: '#9A9692', flex: 1 }}>{item.label}</span>
+                      <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>{item.shortcut}</span>
+                    </div>
+                  ))}
+                  <div style={{ height: 1, margin: '4px 6px', background: 'rgba(89,86,83,0.25)' }} />
+                  <div
+                    onClick={() => runMenuAction(onFocusChatInput)}
+                    className="hover-row"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: '#9A9692', flex: 1 }}>Focus Chat Input</span>
+                    <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                      {SHORTCUTS.focusChatInput.label}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* View dropdown */}
+          <div style={{ position: 'relative', zIndex: 9999 }}>
+            <span
+              className="nav-item"
+              onClick={() => toggleMenu('view')}
               style={{ color: '#74747C', fontSize: 'inherit' }}
             >
               View
             </span>
-            {showViewMenu && (
+            {openMenu === 'view' && (
               <>
-                {/* Invisible backdrop to block clicks on elements behind the menu */}
-                <div
-                  style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
-                  onClick={() => setShowViewMenu(false)}
-                />
                 <div
                   style={{
                     position: 'absolute', top: 30, left: -8, zIndex: 9999,
@@ -437,7 +755,7 @@ function TopNav({
                   {ALL_PANELS.map((id) => (
                     <div
                       key={id}
-                      onClick={() => onTogglePanel(id)}
+                      onClick={() => runMenuAction(() => onTogglePanel(id))}
                       className="hover-row"
                       style={{
                         display: 'flex', alignItems: 'center', gap: 8,
@@ -453,6 +771,20 @@ function TopNav({
                       </span>
                     </div>
                   ))}
+                  <div style={{ height: 1, margin: '4px 6px', background: 'rgba(89,86,83,0.25)' }} />
+                  <div
+                    onClick={() => runMenuAction(onResetLayout)}
+                    className="hover-row"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '4px 12px', cursor: 'pointer', fontSize: 12,
+                    }}
+                  >
+                    <span style={{ color: '#9A9692', flex: 1 }}>Reset Layout</span>
+                    <span style={{ color: '#595653', fontSize: 10, fontWeight: 500 }}>
+                      {SHORTCUTS.resetLayout.label}
+                    </span>
+                  </div>
                 </div>
               </>
             )}
@@ -775,6 +1107,55 @@ export function WorkspaceLayout() {
     savePersistedWorkspaceLayoutState(layout, activeTabs)
   }, [layout, activeTabs])
 
+  const triggerNewTerminal = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('hotkey:newTerminal'))
+  }, [])
+
+  const resetLayout = useCallback(() => {
+    setLayout(DEFAULT_LAYOUT)
+    setActiveTabs({})
+  }, [])
+
+  const closeActivePanel = useCallback(() => {
+    for (const panelId of Object.values(activeTabs)) {
+      if (findAllPanelsInLayout(layout).has(panelId)) {
+        handleHidePanel(panelId)
+        return
+      }
+    }
+  }, [activeTabs, layout, handleHidePanel])
+
+  const focusChatInput = useCallback(() => {
+    focusPanel('chat')
+    setTimeout(() => {
+      const input = document.querySelector<HTMLTextAreaElement>('[data-chat-input]')
+      if (input) input.focus()
+    }, 50)
+  }, [focusPanel])
+
+  const openFolderFromDialog = useCallback(() => {
+    void (async () => {
+      try {
+        const selected = await window.electronAPI.fs.openFolderDialog()
+        if (selected) useWorkspaceStore.getState().openFolder(selected)
+      } catch (err) {
+        console.error('[WorkspaceLayout] Open folder failed:', err)
+      }
+    })()
+  }, [])
+
+  const focusFileSearch = useCallback(() => {
+    focusPanel('fileSearch')
+    setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>('[data-file-search-input]')
+      if (input) input.focus()
+    }, 50)
+  }, [focusPanel])
+
+  const focusFileExplorer = useCallback(() => {
+    focusPanel('fileExplorer')
+  }, [focusPanel])
+
   const hotkeyBindings: HotkeyBinding[] = [
     // Cmd+1 through Cmd+8: focus panels
     ...PANEL_SHORTCUT_ORDER.map((panelId, idx) => {
@@ -806,80 +1187,43 @@ export function WorkspaceLayout() {
     // Cmd+Shift+N — new terminal (IPC)
     {
       ...SHORTCUTS.newTerminal,
-      handler: () => {
-        // Dispatch a custom event the TerminalPanel listens for
-        window.dispatchEvent(new CustomEvent('hotkey:newTerminal'))
-      },
+      handler: triggerNewTerminal,
     },
 
     // Cmd+Shift+R — reset layout
     {
       ...SHORTCUTS.resetLayout,
-      handler: () => {
-        setLayout(DEFAULT_LAYOUT)
-        setActiveTabs({})
-      },
+      handler: resetLayout,
     },
 
     // Cmd+W — close/hide active panel (whatever is in the focused slot)
     {
       ...SHORTCUTS.closePanel,
-      handler: () => {
-        // Find the first active tab and hide it
-        for (const [key, panelId] of Object.entries(activeTabs)) {
-          if (findAllPanelsInLayout(layout).has(panelId)) {
-            handleHidePanel(panelId)
-            return
-          }
-          void key // lint: key is iterated but unused
-        }
-      },
+      handler: closeActivePanel,
     },
 
     // Cmd+/ — focus chat input
     {
       ...SHORTCUTS.focusChatInput,
-      handler: () => {
-        focusPanel('chat')
-        // Give the chat input a tick to render, then focus it
-        setTimeout(() => {
-          const input = document.querySelector<HTMLTextAreaElement>('[data-chat-input]')
-          if (input) input.focus()
-        }, 50)
-      },
+      handler: focusChatInput,
     },
 
     // Cmd+O — open folder
     {
       ...SHORTCUTS.openFolder,
-      handler: () => {
-        void (async () => {
-          try {
-            const selected = await window.electronAPI.fs.openFolderDialog()
-            if (selected) useWorkspaceStore.getState().openFolder(selected)
-          } catch (err) {
-            console.error('[WorkspaceLayout] Open folder failed:', err)
-          }
-        })()
-      },
+      handler: openFolderFromDialog,
     },
 
     // Cmd+P — file search
     {
       ...SHORTCUTS.fileSearch,
-      handler: () => {
-        focusPanel('fileSearch')
-        setTimeout(() => {
-          const input = document.querySelector<HTMLInputElement>('[data-file-search-input]')
-          if (input) input.focus()
-        }, 50)
-      },
+      handler: focusFileSearch,
     },
 
     // Cmd+Shift+E — file explorer
     {
       ...SHORTCUTS.fileExplorer,
-      handler: () => focusPanel('fileExplorer'),
+      handler: focusFileExplorer,
     },
 
     // Escape — close menus, deselect agent
@@ -925,24 +1269,19 @@ export function WorkspaceLayout() {
 
     if (api.onNewTerminal) {
       unsubs.push(api.onNewTerminal(() => {
-        window.dispatchEvent(new CustomEvent('hotkey:newTerminal'))
+        triggerNewTerminal()
       }))
     }
 
     if (api.onFocusChat) {
       unsubs.push(api.onFocusChat(() => {
-        focusPanel('chat')
-        setTimeout(() => {
-          const input = document.querySelector<HTMLTextAreaElement>('[data-chat-input]')
-          if (input) input.focus()
-        }, 50)
+        focusChatInput()
       }))
     }
 
     if (api.onResetLayout) {
       unsubs.push(api.onResetLayout(() => {
-        setLayout(DEFAULT_LAYOUT)
-        setActiveTabs({})
+        resetLayout()
       }))
     }
 
@@ -953,12 +1292,22 @@ export function WorkspaceLayout() {
     }
 
     return () => { unsubs.forEach((fn) => fn()) }
-  }, [focusPanel])
+  }, [focusPanel, focusChatInput, resetLayout, triggerNewTerminal])
 
   // ── Render ─────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0E0E0D', paddingRight: 8 }}>
-      <TopNav visiblePanels={visiblePanels} onTogglePanel={handleTogglePanel} />
+      <TopNav
+        visiblePanels={visiblePanels}
+        onTogglePanel={handleTogglePanel}
+        onOpenFolder={openFolderFromDialog}
+        onFocusFileSearch={focusFileSearch}
+        onFocusFileExplorer={focusFileExplorer}
+        onNewTerminal={triggerNewTerminal}
+        onCloseActivePanel={closeActivePanel}
+        onFocusChatInput={focusChatInput}
+        onResetLayout={resetLayout}
+      />
 
       <div ref={containerRef} style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {layout.map((col, colIdx) => (

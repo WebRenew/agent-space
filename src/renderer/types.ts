@@ -41,6 +41,38 @@ export type SystemSound =
   | 'Glass' | 'Hero' | 'Morse' | 'Ping' | 'Pop'
   | 'Purr' | 'Sosumi' | 'Submarine' | 'Tink'
 
+export type SchedulerRunStatus = 'idle' | 'running' | 'success' | 'error'
+export type SchedulerRunTrigger = 'cron' | 'manual'
+
+export interface SchedulerTaskInput {
+  id?: string
+  name: string
+  cron: string
+  prompt: string
+  workingDirectory: string
+  enabled: boolean
+  yoloMode: boolean
+}
+
+export interface SchedulerTask {
+  id: string
+  name: string
+  cron: string
+  prompt: string
+  workingDirectory: string
+  enabled: boolean
+  yoloMode: boolean
+  createdAt: number
+  updatedAt: number
+  nextRunAt: number | null
+  isRunning: boolean
+  lastRunAt: number | null
+  lastStatus: SchedulerRunStatus
+  lastError: string | null
+  lastDurationMs: number | null
+  lastRunTrigger: SchedulerRunTrigger | null
+}
+
 export interface Scope {
   id: string
   name: string

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { logRendererEvent } from '../lib/diagnostics'
 
 interface Props {
   children: ReactNode
@@ -22,6 +23,12 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error(`[ErrorBoundary${this.props.fallbackLabel ? ` - ${this.props.fallbackLabel}` : ''}]`, error, info.componentStack)
+    logRendererEvent('error', 'renderer.react_error_boundary', {
+      label: this.props.fallbackLabel ?? 'Component',
+      message: error.message,
+      stack: error.stack ?? null,
+      componentStack: info.componentStack,
+    })
   }
 
   render(): ReactNode {

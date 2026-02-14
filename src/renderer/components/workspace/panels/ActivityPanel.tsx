@@ -19,21 +19,38 @@ const BADGE_STYLES: Record<string, { label: string; color: string }> = {
   error: { label: 'ERROR', color: '#c45050' },
 }
 
+function firstToolToken(description: string): string {
+  const token = description
+    .trim()
+    .split(/[\s:(]+/, 1)[0]
+    ?.toLowerCase() ?? ''
+  return token
+}
+
 function resolveToolBadge(description: string): { label: string; color: string } {
-  const normalized = description.toLowerCase()
+  const tool = firstToolToken(description)
   // CRON is reserved for scheduled recurring tasks.
-  if (/\bcron\b/.test(normalized) || /\bscheduled\b/.test(normalized) || /\brecurr(?:ing|ence)\b/.test(normalized)) {
+  if (tool === 'cron' || tool === 'schedule' || tool === 'scheduler') {
     return { label: 'CRON', color: '#548C5A' }
   }
-  if (/\bglob\b/.test(normalized)) {
+  if (tool === 'glob') {
     return { label: 'GLOB', color: '#4C89D9' }
+  }
+  if (tool === 'grep') {
+    return { label: 'GREP', color: '#4C89D9' }
+  }
+  if (tool === 'read') {
+    return { label: 'READ', color: '#4C89D9' }
+  }
+  if (tool === 'todowrite') {
+    return { label: 'TODO', color: '#4C89D9' }
   }
   return BADGE_STYLES.tool_call
 }
 
 function resolveBadge(type: AgentEventType, description: string): { label: string; color: string } {
   if (type === 'tool_call') return resolveToolBadge(description)
-  return BADGE_STYLES[type] ?? { label: type.toUpperCase(), color: '#595653' }
+  return BADGE_STYLES[type] ?? { label: 'EVENT', color: '#595653' }
 }
 
 /** Generate a deterministic sparkline from a string hash */

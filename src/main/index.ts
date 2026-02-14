@@ -7,6 +7,7 @@ import { setupFilesystemHandlers } from './filesystem'
 import { setupLspHandlers, cleanupLspServers } from './lsp-manager'
 import { setupMemoriesHandlers, cleanupMemories } from './memories'
 import { setupAgentNamerHandlers } from './agent-namer'
+import { setupSchedulerHandlers, cleanupScheduler } from './scheduler'
 import {
   addStartupBreadcrumb,
   flushStartupBreadcrumbs,
@@ -16,6 +17,12 @@ import {
   recordIpcRuntimeError,
   recordTelemetryEvent,
 } from './telemetry'
+import {
+  getDiagnosticsLogPath,
+  logMainError,
+  logMainEvent,
+  setupDiagnosticsHandlers,
+} from './diagnostics'
 
 // Strip Claude session env vars so embedded terminals can launch Claude Code
 for (const key of Object.keys(process.env)) {
@@ -47,10 +54,12 @@ function setupProcessTelemetryListeners(): void {
 
   process.on('uncaughtException', (error) => {
     recordException('uncaughtException', error)
+    logMainError('uncaughtException', error)
   })
 
   process.on('unhandledRejection', (reason) => {
     recordException('unhandledRejection', reason)
+    logMainError('unhandledRejection', reason)
   })
 }
 
@@ -183,6 +192,8 @@ if (!gotTheLock) {
 } else {
   let mainWindow: BrowserWindow | null = null
   let chatPopoutHandlerRegistered = false
+  let rendererCrashStreak = 0
+  let rendererCrashStreakWindowStart = 0
 
   app.on('second-instance', () => {
     recordTelemetryEvent('app.second_instance')
@@ -246,8 +257,45 @@ if (!gotTheLock) {
         reason: details.reason,
         exitCode: details.exitCode,
       })
+      logMainEvent('renderer.process_gone', {
+        reason: details.reason,
+        exitCode: details.exitCode,
+      }, 'error')
+
+      const now = Date.now()
+      if (now - rendererCrashStreakWindowStart > 60_000) {
+        rendererCrashStreak = 0
+        rendererCrashStreakWindowStart = now
+      }
+      rendererCrashStreak += 1
+      const shouldAttemptRecovery = rendererCrashStreak <= 3
+      if (!shouldAttemptRecovery) {
+        logMainEvent('renderer.recovery.skipped', {
+          reason: details.reason,
+          crashStreak: rendererCrashStreak,
+        }, 'warn')
+        return
+      }
+
+      const target = mainWindow
+      setTimeout(() => {
+        if (!target || target.isDestroyed()) return
+        try {
+          logMainEvent('renderer.recovery.reload', {
+            crashStreak: rendererCrashStreak,
+            reason: details.reason,
+          }, 'warn')
+          target.webContents.reloadIgnoringCache()
+        } catch (err) {
+          logMainError('renderer.recovery.reload_failed', err, {
+            reason: details.reason,
+            crashStreak: rendererCrashStreak,
+          })
+        }
+      }, 700)
     })
 
+    runStartupStep('diagnostics_handlers', () => setupDiagnosticsHandlers())
     runStartupStep('terminal_handlers', () => setupTerminalHandlers(mainWindow!))
     runStartupStep('claude_handlers', () => setupClaudeSessionHandlers(mainWindow!))
     runStartupStep('settings_handlers', () => setupSettingsHandlers())
@@ -256,6 +304,7 @@ if (!gotTheLock) {
     runStartupStep('lsp_handlers', () => setupLspHandlers(mainWindow!))
     runStartupStep('memories_handlers', () => setupMemoriesHandlers())
     runStartupStep('agent_namer_handlers', () => setupAgentNamerHandlers(mainWindow!))
+    runStartupStep('scheduler_handlers', () => setupSchedulerHandlers())
     runStartupStep('menu', () => createApplicationMenu(mainWindow!))
     runStartupStep('chat_popout_handler', () => setupChatPopoutHandler())
 
@@ -269,6 +318,10 @@ if (!gotTheLock) {
 
     addStartupBreadcrumb('window.create.done')
     recordTelemetryEvent('window.created', { telemetryLogPath: getTelemetryLogPath() })
+    logMainEvent('window.created', {
+      telemetryLogPath: getTelemetryLogPath(),
+      diagnosticsLogPath: getDiagnosticsLogPath(),
+    })
   }
 
   app.whenReady().then(() => {
@@ -281,6 +334,11 @@ if (!gotTheLock) {
         exitCode: details.exitCode,
         webContentsId: webContents.id,
       })
+      logMainEvent('app.render_process_gone', {
+        reason: details.reason,
+        exitCode: details.exitCode,
+        webContentsId: webContents.id,
+      }, 'error')
     })
 
     app.on('child-process-gone', (_event, details) => {
@@ -291,6 +349,13 @@ if (!gotTheLock) {
         serviceName: details.serviceName,
         name: details.name,
       })
+      logMainEvent('app.child_process_gone', {
+        type: details.type,
+        reason: details.reason,
+        exitCode: details.exitCode,
+        serviceName: details.serviceName,
+        name: details.name,
+      }, details.reason === 'clean-exit' ? 'info' : 'warn')
     })
 
     createWindow()
@@ -319,6 +384,7 @@ if (!gotTheLock) {
     cleanupClaudeSessions()
     cleanupLspServers()
     cleanupMemories().catch(() => {})
+    cleanupScheduler()
   })
 
   app.on('window-all-closed', () => {

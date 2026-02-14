@@ -231,7 +231,33 @@ const electronAPI: ElectronAPI = {
 
     isReady: () =>
       ipcRenderer.invoke('memories:isReady') as Promise<boolean>,
-  }
+  },
+  diagnostics: {
+    logRenderer: (level, event, payload) =>
+      ipcRenderer.invoke('diagnostics:logRenderer', { level, event, payload }) as Promise<void>,
+
+    getLogPath: () =>
+      ipcRenderer.invoke('diagnostics:getLogPath') as Promise<string>,
+  },
+  scheduler: {
+    list: () =>
+      ipcRenderer.invoke('scheduler:list'),
+
+    upsert: (task) =>
+      ipcRenderer.invoke('scheduler:upsert', task),
+
+    delete: (taskId: string) =>
+      ipcRenderer.invoke('scheduler:delete', taskId) as Promise<void>,
+
+    runNow: (taskId: string) =>
+      ipcRenderer.invoke('scheduler:runNow', taskId),
+
+    onUpdated: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on('scheduler:updated', handler)
+      return () => { ipcRenderer.removeListener('scheduler:updated', handler) }
+    },
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

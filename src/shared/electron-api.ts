@@ -1,4 +1,10 @@
-import type { AppSettings, ClaudeEvent, ClaudeSessionOptions } from '../renderer/types'
+import type {
+  AppSettings,
+  ClaudeEvent,
+  ClaudeSessionOptions,
+  SchedulerTask,
+  SchedulerTaskInput,
+} from '../renderer/types'
 
 export type Unsubscribe = () => void
 
@@ -126,5 +132,20 @@ export interface ElectronAPI {
     addChatMessage: (opts: ChatMemoryWrite) => Promise<void>
     getChatHistory: (scopeId: string, limit?: number) => Promise<ChatMemoryEntry[]>
     isReady: () => Promise<boolean>
+  }
+  diagnostics: {
+    logRenderer: (
+      level: 'info' | 'warn' | 'error',
+      event: string,
+      payload?: Record<string, unknown>
+    ) => Promise<void>
+    getLogPath: () => Promise<string>
+  }
+  scheduler: {
+    list: () => Promise<SchedulerTask[]>
+    upsert: (task: SchedulerTaskInput) => Promise<SchedulerTask>
+    delete: (taskId: string) => Promise<void>
+    runNow: (taskId: string) => Promise<SchedulerTask>
+    onUpdated: (callback: () => void) => Unsubscribe
   }
 }

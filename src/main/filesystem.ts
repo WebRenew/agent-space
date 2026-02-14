@@ -56,6 +56,13 @@ const IGNORED_DIRS = new Set([
 ])
 
 const IGNORED_FILES = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini'])
+const MACOS_HOME_EXCLUDED_SEARCH_DIRS = [
+  'Library',
+  'Library/Containers',
+  'Library/Group Containers',
+  'Library/Application Support',
+  'Library/Application Scripts',
+]
 
 const SEARCH_INDEX_TTL_MS = 15_000
 const SEARCH_INDEX_MAX_FILES = 200_000
@@ -310,12 +317,13 @@ async function getCachedSearchIndex(rootDir: string): Promise<IndexedSearchFile[
 
 async function buildSearchIndex(rootDir: string): Promise<IndexedSearchFile[]> {
   const relPaths = await listSearchablePaths(rootDir)
+  const rootExcludedDirs = new Set(getRootSpecificSearchExclusions(rootDir).map((dir) => dir.toLowerCase()))
   const seen = new Set<string>()
   const files: IndexedSearchFile[] = []
 
   for (const relPathRaw of relPaths) {
     const relPath = normalizeRelativeSearchPath(relPathRaw)
-    if (!relPath || seen.has(relPath) || shouldIgnoreInSearch(relPath)) continue
+    if (!relPath || seen.has(relPath) || shouldIgnoreInSearch(relPath, rootExcludedDirs)) continue
     seen.add(relPath)
 
     const name = path.posix.basename(relPath)
@@ -349,7 +357,33 @@ function normalizeRelativeSearchPath(rawPath: string): string {
   return trimmed.replace(/\\/g, '/').replace(/^\.\//, '')
 }
 
-function shouldIgnoreInSearch(relPath: string): boolean {
+function getRootSpecificSearchExclusions(rootDir: string): string[] {
+  if (process.platform !== 'darwin') return []
+
+  const resolvedRoot = path.resolve(rootDir)
+  const homeDir = path.resolve(os.homedir())
+  const excludes = new Set<string>()
+
+  for (const homeRelativeDir of MACOS_HOME_EXCLUDED_SEARCH_DIRS) {
+    const absDir = path.join(homeDir, homeRelativeDir)
+    if (!isPathInsideRoot(resolvedRoot, absDir)) continue
+
+    const relDir = normalizeRelativeSearchPath(path.relative(resolvedRoot, absDir)).replace(/\/+$/, '')
+    if (!relDir) continue
+    excludes.add(relDir)
+  }
+
+  return Array.from(excludes)
+}
+
+function shouldIgnoreInSearch(relPath: string, rootExcludedDirs?: ReadonlySet<string>): boolean {
+  const normalizedRelPath = normalizeRelativeSearchPath(relPath).toLowerCase()
+  if (rootExcludedDirs && normalizedRelPath) {
+    for (const excludedDir of rootExcludedDirs) {
+      if (normalizedRelPath === excludedDir || normalizedRelPath.startsWith(`${excludedDir}/`)) return true
+    }
+  }
+
   const segments = relPath.split('/').filter(Boolean)
   if (segments.length === 0) return true
 
@@ -385,8 +419,12 @@ async function listSearchablePaths(rootDir: string): Promise<string[]> {
 
 function listPathsWithRipgrep(rootDir: string): Promise<string[]> {
   const args = ['--files', '--hidden']
+  const rootSpecificExcludes = getRootSpecificSearchExclusions(rootDir)
   for (const dir of IGNORED_DIRS) {
     args.push('--glob', `!**/${dir}/**`)
+  }
+  for (const relDir of rootSpecificExcludes) {
+    args.push('--glob', `!${relDir}/**`)
   }
   for (const file of IGNORED_FILES) {
     args.push('--glob', `!**/${file}`)
@@ -405,8 +443,12 @@ function listPathsWithRipgrep(rootDir: string): Promise<string[]> {
 
 function listPathsWithFind(rootDir: string): Promise<string[]> {
   const args = [rootDir, '-type', 'f']
+  const rootSpecificExcludes = getRootSpecificSearchExclusions(rootDir)
   for (const dir of IGNORED_DIRS) {
     args.push('-not', '-path', `*/${dir}/*`)
+  }
+  for (const relDir of rootSpecificExcludes) {
+    args.push('-not', '-path', `${path.join(rootDir, relDir)}/*`)
   }
   for (const file of IGNORED_FILES) {
     args.push('-not', '-name', file)
