@@ -1,0 +1,77 @@
+---
+title: Todo Runner
+description: Run large todo lists sequentially until completion using an external Agent SDK runner.
+---
+
+# Todo Runner
+
+Todo Runner is designed for long-running jobs where a user provides a large list of todos and wants execution to continue until every item is complete (or blocked).
+
+This is separate from CRON schedules:
+
+- **Schedules**: recurring prompt runs on a timetable.
+- **Todo Runner**: sequential execution of a finite checklist.
+
+## Where To Find It
+
+Open **Settings -> Todo Runner**.
+
+## Configure A Todo Run
+
+1. Click **+ Add Todo Run**.
+2. Set:
+   - **Name**
+   - **Directory** (workspace root to execute in)
+   - **Runner command** (your external worker process)
+   - **Global prompt** (applies to every todo)
+   - **Todo items** (one item per line)
+3. Click **Save**.
+4. Click **Start**.
+
+## Runner Contract
+
+Agent Space launches your runner command and passes todo context through environment variables and stdin JSON.
+
+### Environment Variables
+
+- `AGENT_SPACE_TODO_PAYLOAD`
+- `AGENT_SPACE_TODO_TEXT`
+- `AGENT_SPACE_TODO_INDEX`
+- `AGENT_SPACE_TODO_TOTAL`
+- `AGENT_SPACE_TODO_PROMPT`
+- `AGENT_SPACE_TODO_JOB_ID`
+- `AGENT_SPACE_TODO_JOB_NAME`
+- `AGENT_SPACE_YOLO_MODE`
+
+### Stdin Payload
+
+The same structured payload is written to stdin (JSON), including:
+
+- job metadata
+- current todo item
+- full todo list with status
+
+Use this payload to map one todo item to one Agent SDK execution unit.
+
+## Runtime Behavior
+
+- Todos run one-by-one in order.
+- Completed items are marked done and skipped on future runs.
+- Failed items are retried up to 3 attempts.
+- Items that exceed retry limit are marked blocked, and the job pauses.
+- You can **Pause**, **Start**, or **Reset Progress** at any time.
+
+## Recommended Agent SDK Pattern
+
+Use a runner command that wraps Anthropic Agent SDK calls (instead of Claude Code CLI), for example:
+
+- `python3 /path/to/agent_sdk_worker.py`
+- `node /path/to/agent-sdk-runner.js`
+
+The runner should:
+
+1. Read payload from env or stdin.
+2. Execute exactly the current todo item.
+3. Exit `0` on success.
+4. Exit non-zero with useful stderr on failure.
+

@@ -31,3 +31,9 @@ Fix:
 
 If one chat appears as multiple office agents, refresh session state or restart app and verify single active thread.
 
+## Todo Runner job not progressing
+
+1. Confirm **Runner command** is valid and executable in the selected working directory.
+2. Run the same command manually in terminal to verify dependencies are installed.
+3. Check that your runner reads todo context from env/stdin and exits with non-zero on failures.
+4. Inspect the latest error shown in the Todo Runner card and fix the underlying worker issue.

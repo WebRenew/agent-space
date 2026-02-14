@@ -1,11 +1,11 @@
 ---
 title: Scheduled Actions
-description: Configure CRON actions so agents can run work on a schedule.
+description: Configure CRON actions so prompts run on a recurring schedule.
 ---
 
 # Scheduled Actions
 
-Agent Space supports scheduled actions for repeated tasks.
+Agent Space supports recurring task execution through the **Schedules** tab in Settings.
 
 ## What CRON Means in Agent Space
 
@@ -19,16 +19,32 @@ Agent Space supports scheduled actions for repeated tasks.
 - Scheduled maintenance prompts
 - Routine reporting workflows
 
-## Setup Guidance
+## Configure A Schedule
 
-1. Define the task prompt clearly.
-2. Pick a schedule and expected runtime window.
-3. Set workspace directory scope for the task.
-4. Validate results in activity timeline and output panels.
+1. Open **Settings -> Schedules**.
+2. Click **+ Add Schedule**.
+3. Set:
+   - Task name
+   - CRON expression (`minute hour day month weekday`)
+   - Working directory
+   - Prompt to run
+4. Save the task.
+5. Optionally click **Run now** to validate immediately.
 
-## Validation
+## Useful CRON Examples
 
-- Timeline entries should show `CRON` only for scheduled runs.
-- Task output should include timestamps and workspace context.
-- Failures should be visible in activity and logs.
+- `*/15 * * * *` every 15 minutes
+- `0 * * * *` top of every hour
+- `0 9 * * 1-5` weekday 9:00 AM
+- `30 18 * * *` every day at 6:30 PM
 
+## Validation Checklist
+
+- Schedule status updates after each run.
+- `Next run` and `Last run` timestamps update as expected.
+- Errors are visible in the schedule card and diagnostics logs.
+
+## Related Feature: Todo Runner
+
+For large one-time or resumable checklists, use **Settings -> Todo Runner** instead of CRON.
+Todo Runner executes todos sequentially until all are complete.
