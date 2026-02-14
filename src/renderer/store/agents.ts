@@ -69,6 +69,107 @@ export interface Toast {
 
 let toastCounter = 0
 let eventCounter = 0
+const CHAT_STATE_KEY = 'agent-space:chatState'
+
+interface PersistedChatSession {
+  id: string
+  label: string
+  scopeId: string | null
+  workingDirectory: string | null
+  directoryMode: 'workspace' | 'custom'
+}
+
+interface PersistedChatState {
+  sessions: PersistedChatSession[]
+  activeId: string | null
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function normalizePersistedChatSession(value: unknown): PersistedChatSession | null {
+  if (!isObject(value)) return null
+  const id = typeof value.id === 'string' ? value.id.trim() : ''
+  if (!id) return null
+
+  const labelRaw = typeof value.label === 'string' ? value.label.trim() : ''
+  const label = labelRaw.length > 0 ? labelRaw : 'Chat'
+  const scopeId = typeof value.scopeId === 'string' ? value.scopeId : null
+  const workingDirectory = typeof value.workingDirectory === 'string' ? value.workingDirectory : null
+  const directoryMode = value.directoryMode === 'custom' ? 'custom' : 'workspace'
+
+  return {
+    id,
+    label,
+    scopeId,
+    workingDirectory,
+    directoryMode,
+  }
+}
+
+function loadPersistedChatState(): {
+  chatSessions: ChatSessionInfo[]
+  activeChatSessionId: string | null
+} {
+  try {
+    const raw = localStorage.getItem(CHAT_STATE_KEY)
+    if (!raw) return { chatSessions: [], activeChatSessionId: null }
+    const parsed: unknown = JSON.parse(raw)
+    if (!isObject(parsed) || !Array.isArray(parsed.sessions)) {
+      return { chatSessions: [], activeChatSessionId: null }
+    }
+
+    const deduped = new Map<string, PersistedChatSession>()
+    for (const candidate of parsed.sessions) {
+      const normalized = normalizePersistedChatSession(candidate)
+      if (!normalized) continue
+      deduped.set(normalized.id, normalized)
+    }
+
+    const chatSessions: ChatSessionInfo[] = Array.from(deduped.values()).map((session) => ({
+      ...session,
+      agentId: null,
+    }))
+
+    const activeId = typeof parsed.activeId === 'string' ? parsed.activeId : null
+    const activeChatSessionId = activeId && chatSessions.some((session) => session.id === activeId)
+      ? activeId
+      : chatSessions[chatSessions.length - 1]?.id ?? null
+
+    return { chatSessions, activeChatSessionId }
+  } catch {
+    return { chatSessions: [], activeChatSessionId: null }
+  }
+}
+
+function savePersistedChatState(
+  chatSessions: ChatSessionInfo[],
+  activeChatSessionId: string | null
+): void {
+  try {
+    const sessions: PersistedChatSession[] = chatSessions.map((session) => ({
+      id: session.id,
+      label: session.label,
+      scopeId: session.scopeId,
+      workingDirectory: session.workingDirectory,
+      directoryMode: session.directoryMode,
+    }))
+
+    const payload: PersistedChatState = {
+      sessions,
+      activeId: activeChatSessionId && sessions.some((session) => session.id === activeChatSessionId)
+        ? activeChatSessionId
+        : sessions[sessions.length - 1]?.id ?? null,
+    }
+
+    localStorage.setItem(CHAT_STATE_KEY, JSON.stringify(payload))
+  } catch (err) {
+    console.error('[agents] Failed to persist chat sessions:', err)
+  }
+}
+
+const hydratedChatState = loadPersistedChatState()
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
   // Terminals
@@ -101,33 +202,49 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     })),
 
   // Chat sessions
-  chatSessions: [],
-  activeChatSessionId: null,
+  chatSessions: hydratedChatState.chatSessions,
+  activeChatSessionId: hydratedChatState.activeChatSessionId,
 
   addChatSession: (info) =>
-    set((state) => ({
-      chatSessions: [...state.chatSessions, info],
-      activeChatSessionId: info.id
-    })),
+    set((state) => {
+      const chatSessions = [...state.chatSessions, info]
+      const activeChatSessionId = info.id
+      savePersistedChatState(chatSessions, activeChatSessionId)
+      return { chatSessions, activeChatSessionId }
+    }),
 
   removeChatSession: (id) =>
     set((state) => {
       const remaining = state.chatSessions.filter((s) => s.id !== id)
+      const activeChatSessionId =
+        state.activeChatSessionId === id
+          ? remaining[remaining.length - 1]?.id ?? null
+          : state.activeChatSessionId
+      savePersistedChatState(remaining, activeChatSessionId)
       return {
         chatSessions: remaining,
-        activeChatSessionId:
-          state.activeChatSessionId === id
-            ? remaining[remaining.length - 1]?.id ?? null
-            : state.activeChatSessionId
+        activeChatSessionId
       }
     }),
 
-  setActiveChatSession: (id) => set({ activeChatSessionId: id }),
+  setActiveChatSession: (id) =>
+    set((state) => {
+      const activeChatSessionId =
+        id && state.chatSessions.some((session) => session.id === id)
+          ? id
+          : id === null
+            ? null
+            : state.activeChatSessionId
+      savePersistedChatState(state.chatSessions, activeChatSessionId)
+      return { activeChatSessionId }
+    }),
 
   updateChatSession: (id, updates) =>
-    set((state) => ({
-      chatSessions: state.chatSessions.map((s) => (s.id === id ? { ...s, ...updates } : s))
-    })),
+    set((state) => {
+      const chatSessions = state.chatSessions.map((s) => (s.id === id ? { ...s, ...updates } : s))
+      savePersistedChatState(chatSessions, state.activeChatSessionId)
+      return { chatSessions }
+    }),
 
   // Agents
   agents: [],

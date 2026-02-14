@@ -38,7 +38,7 @@ Last updated: 2026-02-14
     - "new chat in current workspace" action
     - clear in-panel scope indicators
 
-- [ ] **Persist + restore workspace state**
+- [x] **Persist + restore workspace state**
   - Goal: seamless resume on relaunch.
   - Restore:
     - layout

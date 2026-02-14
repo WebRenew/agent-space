@@ -47,12 +47,123 @@ const PANEL_SHORTCUT_LABELS: Partial<Record<PanelId, string>> = {
   fileSearch: SHORTCUTS.fileSearch.label,
   fileExplorer: SHORTCUTS.fileExplorer.label,
 }
+const WORKSPACE_LAYOUT_STATE_KEY = 'agent-space:workspaceLayoutState'
 
 // ── File open dispatcher ─────────────────────────────────────────────
 
 function dispatchFileOpen(filePath: string): void {
   window.dispatchEvent(new CustomEvent('file:open', { detail: filePath }))
 }
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isPanelId(value: unknown): value is PanelId {
+  return typeof value === 'string' && ALL_PANELS.includes(value as PanelId)
+}
+
+function normalizePanelSlot(value: unknown): PanelId | PanelId[] | null {
+  if (isPanelId(value)) return value
+  if (!Array.isArray(value)) return null
+
+  const normalized = Array.from(new Set(value.filter(isPanelId)))
+  if (normalized.length === 0) return null
+  return normalized.length === 1 ? normalized[0] : normalized
+}
+
+function normalizeLayout(value: unknown): Layout | null {
+  if (!Array.isArray(value)) return null
+
+  const columns: Layout = []
+  for (const col of value) {
+    if (!isObject(col) || !Array.isArray(col.rows)) continue
+
+    const rows = []
+    for (const row of col.rows) {
+      if (!isObject(row) || !Array.isArray(row.slots)) continue
+      const slots = row.slots
+        .map(normalizePanelSlot)
+        .filter((slot): slot is PanelId | PanelId[] => slot !== null)
+
+      if (slots.length === 0) continue
+
+      let slotWidths = Array.isArray(row.slotWidths)
+        ? row.slotWidths
+          .map((w) => (typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 0))
+          .slice(0, slots.length)
+        : []
+
+      if (slotWidths.length !== slots.length || slotWidths.some((w) => w <= 0)) {
+        slotWidths = Array.from({ length: slots.length }, () => 1 / slots.length)
+      } else {
+        const total = slotWidths.reduce((sum, width) => sum + width, 0)
+        slotWidths = total > 0
+          ? slotWidths.map((width) => width / total)
+          : Array.from({ length: slots.length }, () => 1 / slots.length)
+      }
+
+      const rawHeight = typeof row.height === 'number' && Number.isFinite(row.height) ? row.height : -1
+      const height = rawHeight === -1 ? -1 : Math.max(PANEL_MIN_HEIGHT, rawHeight)
+      rows.push({ slots, slotWidths, height })
+    }
+
+    if (rows.length === 0) continue
+    const width = typeof col.width === 'number' && Number.isFinite(col.width) && col.width > 0 ? col.width : 1
+    columns.push({ width, rows })
+  }
+
+  if (columns.length === 0) return null
+  const totalWidth = columns.reduce((sum, col) => sum + col.width, 0)
+  if (totalWidth <= 0) return null
+
+  return columns.map((col) => ({ ...col, width: col.width / totalWidth }))
+}
+
+function normalizeActiveTabs(value: unknown): Record<string, PanelId> {
+  if (!isObject(value)) return {}
+  const activeTabs: Record<string, PanelId> = {}
+  for (const [slotKey, panelId] of Object.entries(value)) {
+    if (isPanelId(panelId)) {
+      activeTabs[slotKey] = panelId
+    }
+  }
+  return activeTabs
+}
+
+function loadPersistedWorkspaceLayoutState(): {
+  layout: Layout
+  activeTabs: Record<string, PanelId>
+} {
+  try {
+    const raw = localStorage.getItem(WORKSPACE_LAYOUT_STATE_KEY)
+    if (!raw) return { layout: DEFAULT_LAYOUT, activeTabs: {} }
+    const parsed: unknown = JSON.parse(raw)
+    if (!isObject(parsed)) return { layout: DEFAULT_LAYOUT, activeTabs: {} }
+
+    const layout = normalizeLayout(parsed.layout) ?? DEFAULT_LAYOUT
+    const activeTabs = normalizeActiveTabs(parsed.activeTabs)
+    return { layout, activeTabs }
+  } catch {
+    return { layout: DEFAULT_LAYOUT, activeTabs: {} }
+  }
+}
+
+function savePersistedWorkspaceLayoutState(
+  layout: Layout,
+  activeTabs: Record<string, PanelId>
+): void {
+  try {
+    localStorage.setItem(
+      WORKSPACE_LAYOUT_STATE_KEY,
+      JSON.stringify({ layout, activeTabs })
+    )
+  } catch (err) {
+    console.error('[WorkspaceLayout] Failed to persist layout state:', err)
+  }
+}
+
+const hydratedWorkspaceLayoutState = loadPersistedWorkspaceLayoutState()
 
 const LazyScenePanel = lazy(async () => {
   const mod = await import('./panels/ScenePanel')
@@ -381,10 +492,12 @@ function DropOverlay({
 // ── Main Layout ─────────────────────────────────────────────────────
 
 export function WorkspaceLayout() {
-  const [layout, setLayout] = useState<Layout>(DEFAULT_LAYOUT)
+  const [layout, setLayout] = useState<Layout>(() => hydratedWorkspaceLayoutState.layout)
   const [draggedPanel, setDraggedPanel] = useState<PanelId | null>(null)
   const [dropZone, setDropZone] = useState<DropZone | null>(null)
-  const [activeTabs, setActiveTabs] = useState<Record<string, PanelId>>({})
+  const [activeTabs, setActiveTabs] = useState<Record<string, PanelId>>(
+    () => hydratedWorkspaceLayoutState.activeTabs
+  )
   const containerRef = useRef<HTMLDivElement>(null)
 
   const visiblePanels = findAllPanelsInLayout(layout)
@@ -593,6 +706,10 @@ export function WorkspaceLayout() {
   // ── Keyboard shortcuts ────────────────────────────────────────
   const openSettings = useSettingsStore((s) => s.openSettings)
   const openFolder = useWorkspaceStore((s) => s.openFolder)
+
+  useEffect(() => {
+    savePersistedWorkspaceLayoutState(layout, activeTabs)
+  }, [layout, activeTabs])
 
   const hotkeyBindings: HotkeyBinding[] = [
     // Cmd+1 through Cmd+8: focus panels
