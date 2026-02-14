@@ -196,6 +196,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     generateMeta: (prompt: string) =>
       ipcRenderer.invoke('agent:generateMeta', prompt) as Promise<{ name: string; taskDescription: string }>,
   },
+  chat: {
+    popout: (sessionId: string) =>
+      ipcRenderer.invoke('chat:popout', sessionId) as Promise<void>,
+
+    onReturned: (callback: (sessionId: string) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, sessionId: string) =>
+        callback(sessionId)
+      ipcRenderer.on('chat:returned', handler)
+      return () => { ipcRenderer.removeListener('chat:returned', handler) }
+    },
+  },
   memories: {
     addChatMessage: (opts: {
       content: string

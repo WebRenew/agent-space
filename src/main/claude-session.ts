@@ -128,8 +128,11 @@ function generateSessionId(): string {
 }
 
 function emitEvent(win: BrowserWindow, event: ClaudeEvent): void {
-  if (!win.isDestroyed()) {
-    win.webContents.send('claude:event', event)
+  // Broadcast to all windows (main + popped-out chat windows)
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) {
+      w.webContents.send('claude:event', event)
+    }
   }
 }
 

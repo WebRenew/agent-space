@@ -9,6 +9,10 @@ import { matchScope } from '../../lib/scopeMatcher'
 import { ChatMessageBubble } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 
+interface ChatPanelProps {
+  chatSessionId: string
+}
+
 type SessionStatus = 'idle' | 'running' | 'done' | 'error'
 
 const BINARY_EXTENSIONS = new Set([
@@ -53,9 +57,9 @@ function TypingIndicator() {
   )
 }
 
-export function ChatPanel() {
+export function ChatPanel({ chatSessionId }: ChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null)
   const [status, setStatus] = useState<SessionStatus>('idle')
   const [workingDir, setWorkingDir] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -68,6 +72,7 @@ export function ChatPanel() {
   const updateAgent = useAgentStore((s) => s.updateAgent)
   const getNextDeskIndex = useAgentStore((s) => s.getNextDeskIndex)
   const addEvent = useAgentStore((s) => s.addEvent)
+  const updateChatSession = useAgentStore((s) => s.updateChatSession)
 
   const workspaceRoot = useWorkspaceStore((s) => s.rootPath)
   const scopes = useSettingsStore((s) => s.settings.scopes)
@@ -148,7 +153,7 @@ export function ChatPanel() {
   // Handle incoming Claude events
   useEffect(() => {
     const unsub = window.electronAPI.claude.onEvent((event: ClaudeEvent) => {
-      if (sessionId && event.sessionId !== sessionId) return
+      if (claudeSessionId && event.sessionId !== claudeSessionId) return
 
       const agentId = agentIdRef.current
 
@@ -355,13 +360,21 @@ export function ChatPanel() {
           }
 
           if (agentId) {
+            // Extract token usage from the result event
+            const usage = data.usage as { input_tokens?: number; output_tokens?: number } | undefined
+            const inputTokens = typeof usage?.input_tokens === 'number' ? usage.input_tokens : 0
+            const outputTokens = typeof usage?.output_tokens === 'number' ? usage.output_tokens : 0
+
+            const current = useAgentStore.getState().agents.find((a) => a.id === agentId)
             updateAgent(agentId, {
               status: data.is_error ? 'error' : 'done',
               isClaudeRunning: false,
+              tokens_input: (current?.tokens_input ?? 0) + inputTokens,
+              tokens_output: (current?.tokens_output ?? 0) + outputTokens,
             })
           }
 
-          setSessionId(null)
+          setClaudeSessionId(null)
           break
         }
 
@@ -381,14 +394,14 @@ export function ChatPanel() {
           if (agentId) {
             updateAgent(agentId, { status: 'error', isClaudeRunning: false })
           }
-          setSessionId(null)
+          setClaudeSessionId(null)
           break
         }
       }
     })
 
     return unsub
-  }, [sessionId, updateAgent, addEvent, persistMessage])
+  }, [claudeSessionId, updateAgent, addEvent, persistMessage])
 
   const handleSend = useCallback(
     async (message: string, files?: File[]) => {
@@ -450,7 +463,7 @@ export function ChatPanel() {
         })
       } else {
         // First message — spawn a 3D agent with placeholder name
-        agentId = `chat-agent-${++chatAgentCounter}`
+        agentId = `chat-agent-${++chatAgentCounter}-${Date.now()}`
         agentIdRef.current = agentId
         const deskIndex = getNextDeskIndex()
         const agentNum = chatAgentCounter
@@ -481,6 +494,16 @@ export function ChatPanel() {
           },
         })
 
+        // Link agent to chat session
+        updateChatSession(chatSessionId, { agentId })
+
+        addEvent({
+          agentId,
+          agentName: `Agent ${agentNum}`,
+          type: 'spawn',
+          description: 'Chat session started',
+        })
+
         // Background: generate creative name + task description
         const capturedAgentId = agentId
         window.electronAPI.agent.generateMeta(message).then((meta) => {
@@ -488,15 +511,9 @@ export function ChatPanel() {
             name: meta.name,
             currentTask: meta.taskDescription,
           })
+          updateChatSession(chatSessionId, { label: meta.name })
         }).catch(() => { /* fallback name stays */ })
       }
-
-      addEvent({
-        agentId,
-        agentName: useAgentStore.getState().agents.find((a) => a.id === agentId)?.name ?? `Agent ${chatAgentCounter}`,
-        type: 'spawn',
-        description: 'Chat session started',
-      })
 
       try {
         const result = await window.electronAPI.claude.start({
@@ -504,7 +521,7 @@ export function ChatPanel() {
           workingDirectory: workingDir ?? undefined,
           dangerouslySkipPermissions: yoloMode,
         })
-        setSessionId(result.sessionId)
+        setClaudeSessionId(result.sessionId)
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err)
         console.error(`Failed to start Claude session: ${errMsg}`)
@@ -521,24 +538,24 @@ export function ChatPanel() {
         updateAgent(agentId, { status: 'error', isClaudeRunning: false })
       }
     },
-    [addAgent, updateAgent, removeAgent, getNextDeskIndex, addEvent, workingDir, persistMessage, yoloMode]
+    [addAgent, updateAgent, removeAgent, getNextDeskIndex, addEvent, workingDir, persistMessage, yoloMode, chatSessionId, updateChatSession]
   )
 
   const handleStop = useCallback(async () => {
-    if (!sessionId) return
+    if (!claudeSessionId) return
     try {
-      await window.electronAPI.claude.stop(sessionId)
+      await window.electronAPI.claude.stop(claudeSessionId)
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err)
       console.error(`Failed to stop Claude session: ${errMsg}`)
     }
     setStatus('done')
-    setSessionId(null)
+    setClaudeSessionId(null)
 
     if (agentIdRef.current) {
       updateAgent(agentIdRef.current, { status: 'done', isClaudeRunning: false })
     }
-  }, [sessionId, updateAgent])
+  }, [claudeSessionId, updateAgent])
 
   const isRunning = status === 'running'
 

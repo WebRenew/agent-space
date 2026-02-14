@@ -9,6 +9,13 @@ export interface TerminalInfo {
   cwd: string | null
 }
 
+export interface ChatSessionInfo {
+  id: string
+  label: string
+  agentId: string | null
+  scopeId: string | null
+}
+
 interface AgentStore {
   // Terminal state (tabs — always present)
   terminals: TerminalInfo[]
@@ -17,6 +24,14 @@ interface AgentStore {
   removeTerminal: (id: string) => void
   setActiveTerminal: (id: string | null) => void
   updateTerminal: (id: string, updates: Partial<TerminalInfo>) => void
+
+  // Chat session state (tabs — mirrors terminal pattern)
+  chatSessions: ChatSessionInfo[]
+  activeChatSessionId: string | null
+  addChatSession: (info: ChatSessionInfo) => void
+  removeChatSession: (id: string) => void
+  setActiveChatSession: (id: string | null) => void
+  updateChatSession: (id: string, updates: Partial<ChatSessionInfo>) => void
 
   // Agent state (3D characters — only when Claude is running)
   agents: Agent[]
@@ -81,6 +96,35 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   updateTerminal: (id, updates) =>
     set((state) => ({
       terminals: state.terminals.map((t) => (t.id === id ? { ...t, ...updates } : t))
+    })),
+
+  // Chat sessions
+  chatSessions: [],
+  activeChatSessionId: null,
+
+  addChatSession: (info) =>
+    set((state) => ({
+      chatSessions: [...state.chatSessions, info],
+      activeChatSessionId: info.id
+    })),
+
+  removeChatSession: (id) =>
+    set((state) => {
+      const remaining = state.chatSessions.filter((s) => s.id !== id)
+      return {
+        chatSessions: remaining,
+        activeChatSessionId:
+          state.activeChatSessionId === id
+            ? remaining[remaining.length - 1]?.id ?? null
+            : state.activeChatSessionId
+      }
+    }),
+
+  setActiveChatSession: (id) => set({ activeChatSessionId: id }),
+
+  updateChatSession: (id, updates) =>
+    set((state) => ({
+      chatSessions: state.chatSessions.map((s) => (s.id === id ? { ...s, ...updates } : s))
     })),
 
   // Agents

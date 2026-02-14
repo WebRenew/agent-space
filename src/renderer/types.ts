@@ -352,6 +352,10 @@ declare global {
       agent: {
         generateMeta: (prompt: string) => Promise<{ name: string; taskDescription: string }>
       }
+      chat: {
+        popout: (sessionId: string) => Promise<void>
+        onReturned: (callback: (sessionId: string) => void) => () => void
+      }
       memories: {
         addChatMessage: (opts: {
           content: string
