@@ -138,27 +138,32 @@ export interface ClaudeSystemInit {
 
 export interface ClaudeTextContent {
   text: string
+  usage?: Record<string, unknown>
 }
 
 export interface ClaudeToolUse {
   id: string
   name: string
   input: Record<string, unknown>
+  usage?: Record<string, unknown>
 }
 
 export interface ClaudeToolResult {
   tool_use_id: string
   content: string
   is_error?: boolean
+  usage?: Record<string, unknown>
 }
 
 export interface ClaudeThinkingContent {
   thinking: string
+  usage?: Record<string, unknown>
 }
 
 export interface ClaudeSessionResult {
   result: string
   usage?: Record<string, unknown>
+  modelUsage?: Record<string, unknown>
   is_error?: boolean
   error?: string
   session_id?: string

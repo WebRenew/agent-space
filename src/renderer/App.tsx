@@ -10,9 +10,16 @@ const LazySettingsPanel = lazy(async () => {
   return { default: mod.SettingsPanel }
 })
 
+const LazyHelpPanel = lazy(async () => {
+  const mod = await import('./components/HelpPanel')
+  return { default: mod.HelpPanel }
+})
+
 export function App() {
   const openSettings = useSettingsStore((s) => s.openSettings)
+  const openHelp = useSettingsStore((s) => s.openHelp)
   const isSettingsOpen = useSettingsStore((s) => s.isOpen)
+  const isHelpOpen = useSettingsStore((s) => s.isHelpOpen)
   const fontFamily = useSettingsStore((s) => s.settings.appearance.fontFamily)
   const fontSize = useSettingsStore((s) => s.settings.appearance.fontSize)
 
@@ -21,11 +28,17 @@ export function App() {
       await loadSettings()
       await useWorkspaceStore.getState().initializeStartupWorkspace()
     })()
-    const unsub = window.electronAPI.settings.onOpenSettings(() => {
+    const unsubs: Array<() => void> = []
+    unsubs.push(window.electronAPI.settings.onOpenSettings(() => {
       openSettings()
-    })
-    return unsub
-  }, [openSettings])
+    }))
+    unsubs.push(window.electronAPI.settings.onOpenHelp(() => {
+      openHelp()
+    }))
+    return () => {
+      for (const unsub of unsubs) unsub()
+    }
+  }, [openHelp, openSettings])
 
   // Sync appearance settings to CSS custom properties so all UI inherits them
   useEffect(() => {
@@ -42,6 +55,11 @@ export function App() {
       {isSettingsOpen ? (
         <Suspense fallback={null}>
           <LazySettingsPanel />
+        </Suspense>
+      ) : null}
+      {isHelpOpen ? (
+        <Suspense fallback={null}>
+          <LazyHelpPanel />
         </Suspense>
       ) : null}
       <FirstRunOnboarding />

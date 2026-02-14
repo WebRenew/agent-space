@@ -7,16 +7,33 @@ import type { AgentEventType } from '../../../types'
 const BADGE_STYLES: Record<string, { label: string; color: string }> = {
   spawn: { label: 'MAIN', color: '#d4a040' },
   exit: { label: 'EXIT', color: '#74747C' },
-  status_change: { label: 'MAIN', color: '#d4a040' },
-  file_write: { label: 'MAIN', color: '#d4a040' },
-  tool_call: { label: 'CRON', color: '#548C5A' },
-  commit: { label: 'MAIN', color: '#d4a040' },
-  push: { label: 'MAIN', color: '#d4a040' },
-  test_pass: { label: 'CRON', color: '#548C5A' },
-  test_fail: { label: 'CRON', color: '#548C5A' },
-  build_pass: { label: 'MAIN', color: '#d4a040' },
-  build_fail: { label: 'MAIN', color: '#d4a040' },
-  error: { label: 'CRON', color: '#548C5A' },
+  status_change: { label: 'STATE', color: '#d4a040' },
+  file_write: { label: 'FILE', color: '#4C89D9' },
+  tool_call: { label: 'TOOL', color: '#4C89D9' },
+  commit: { label: 'GIT', color: '#d4a040' },
+  push: { label: 'GIT', color: '#d4a040' },
+  test_pass: { label: 'TEST', color: '#548C5A' },
+  test_fail: { label: 'TEST', color: '#c45050' },
+  build_pass: { label: 'BUILD', color: '#548C5A' },
+  build_fail: { label: 'BUILD', color: '#c45050' },
+  error: { label: 'ERROR', color: '#c45050' },
+}
+
+function resolveToolBadge(description: string): { label: string; color: string } {
+  const normalized = description.toLowerCase()
+  // CRON is reserved for scheduled recurring tasks.
+  if (/\bcron\b/.test(normalized) || /\bscheduled\b/.test(normalized) || /\brecurr(?:ing|ence)\b/.test(normalized)) {
+    return { label: 'CRON', color: '#548C5A' }
+  }
+  if (/\bglob\b/.test(normalized)) {
+    return { label: 'GLOB', color: '#4C89D9' }
+  }
+  return BADGE_STYLES.tool_call
+}
+
+function resolveBadge(type: AgentEventType, description: string): { label: string; color: string } {
+  if (type === 'tool_call') return resolveToolBadge(description)
+  return BADGE_STYLES[type] ?? { label: type.toUpperCase(), color: '#595653' }
 }
 
 /** Generate a deterministic sparkline from a string hash */
@@ -58,7 +75,7 @@ export function ActivityPanel() {
           </div>
         )}
         {displayEvents.map((evt) => {
-          const badge = BADGE_STYLES[evt.type] ?? { label: evt.type.toUpperCase(), color: '#595653' }
+          const badge = resolveBadge(evt.type, evt.description)
           const spark = sparkFromString(evt.description)
           return (
             <div

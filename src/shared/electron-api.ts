@@ -69,7 +69,7 @@ export interface ElectronAPI {
     electron: string
   }
   terminal: {
-    create: (options?: { cols?: number; rows?: number }) => Promise<{ id: string; cwd: string }>
+    create: (options?: { cols?: number; rows?: number; cwd?: string }) => Promise<{ id: string; cwd: string }>
     write: (id: string, data: string) => void
     resize: (id: string, cols: number, rows: number) => void
     kill: (id: string) => Promise<void>
@@ -82,6 +82,7 @@ export interface ElectronAPI {
     set: (settings: AppSettings) => Promise<void>
     selectDirectory: () => Promise<string | null>
     onOpenSettings: (callback: () => void) => Unsubscribe
+    onOpenHelp: (callback: () => void) => Unsubscribe
     onNewTerminal: (callback: () => void) => Unsubscribe
     onFocusChat: (callback: () => void) => Unsubscribe
     onResetLayout: (callback: () => void) => Unsubscribe

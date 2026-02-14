@@ -40,7 +40,7 @@ interface AgentStore {
   selectedAgentId: string | null
   setAgents: (agents: Agent[]) => void
   addAgent: (agent: Agent) => void
-  removeAgent: (terminalId: string) => void
+  removeAgent: (idOrTerminalId: string) => void
   updateAgent: (id: string, updates: Partial<Agent>) => void
   selectAgent: (id: string | null) => void
   getNextDeskIndex: () => number
@@ -283,13 +283,27 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   addAgent: (agent) =>
     set((state) => ({ agents: [...state.agents, agent] })),
 
-  removeAgent: (terminalId) =>
+  removeAgent: (idOrTerminalId) =>
     set((state) => {
-      const agent = state.agents.find((a) => a.terminalId === terminalId)
+      const directMatches = state.agents.filter(
+        (a) => a.id === idOrTerminalId || a.terminalId === idOrTerminalId
+      )
+      if (directMatches.length === 0) return {}
+
+      const removedIds = new Set(directMatches.map((a) => a.id))
+      const remaining = state.agents.filter((a) => {
+        if (a.id === idOrTerminalId || a.terminalId === idOrTerminalId) return false
+        if (a.parentAgentId && removedIds.has(a.parentAgentId)) return false
+        return true
+      })
+      const selectedAgentId =
+        state.selectedAgentId && remaining.some((a) => a.id === state.selectedAgentId)
+          ? state.selectedAgentId
+          : null
+
       return {
-        agents: state.agents.filter((a) => a.terminalId !== terminalId),
-        selectedAgentId:
-          state.selectedAgentId === agent?.id ? null : state.selectedAgentId
+        agents: remaining,
+        selectedAgentId,
       }
     }),
 

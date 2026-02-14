@@ -5,17 +5,23 @@ import { DEFAULT_SETTINGS } from '../types'
 interface SettingsStore {
   settings: AppSettings
   isOpen: boolean
+  isHelpOpen: boolean
   setSettings: (settings: AppSettings) => void
   openSettings: () => void
   closeSettings: () => void
+  openHelp: () => void
+  closeHelp: () => void
 }
 
 export const useSettingsStore = create<SettingsStore>((set) => ({
   settings: DEFAULT_SETTINGS,
   isOpen: false,
+  isHelpOpen: false,
   setSettings: (settings) => set({ settings }),
-  openSettings: () => set({ isOpen: true }),
-  closeSettings: () => set({ isOpen: false })
+  openSettings: () => set({ isOpen: true, isHelpOpen: false }),
+  closeSettings: () => set({ isOpen: false }),
+  openHelp: () => set({ isHelpOpen: true, isOpen: false }),
+  closeHelp: () => set({ isHelpOpen: false })
 }))
 
 export async function loadSettings(): Promise<void> {

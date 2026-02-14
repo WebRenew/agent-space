@@ -361,6 +361,7 @@ function TopNav({
   const agentCount = useAgentStore((s) => s.agents.length)
   const eventCount = useAgentStore((s) => s.events.length)
   const openSettings = useSettingsStore((s) => s.openSettings)
+  const openHelp = useSettingsStore((s) => s.openHelp)
   const workspaceRoot = useWorkspaceStore((s) => s.rootPath)
   const workspaceName = workspaceRoot?.split('/').pop() ?? null
   const [timeStr, setTimeStr] = useState(() =>
@@ -458,6 +459,9 @@ function TopNav({
           </div>
           <span className="nav-item" onClick={openSettings} style={{ color: '#74747C', fontSize: 'inherit' }} title={`Settings (${SHORTCUTS.openSettings.label})`}>
             Settings
+          </span>
+          <span className="nav-item" onClick={openHelp} style={{ color: '#74747C', fontSize: 'inherit' }} title={`Help (${SHORTCUTS.openHelp.label})`}>
+            Help
           </span>
         </nav>
       </div>
@@ -764,6 +768,7 @@ export function WorkspaceLayout() {
 
   // ── Keyboard shortcuts ────────────────────────────────────────
   const openSettings = useSettingsStore((s) => s.openSettings)
+  const openHelp = useSettingsStore((s) => s.openHelp)
   const openFolder = useWorkspaceStore((s) => s.openFolder)
 
   useEffect(() => {
@@ -790,6 +795,12 @@ export function WorkspaceLayout() {
     {
       ...SHORTCUTS.openSettings,
       handler: () => openSettings(),
+    },
+
+    // F1 — open help
+    {
+      ...SHORTCUTS.openHelp,
+      handler: () => openHelp(),
     },
 
     // Cmd+Shift+N — new terminal (IPC)
@@ -879,6 +890,10 @@ export function WorkspaceLayout() {
         const settingsStore = useSettingsStore.getState()
         if (settingsStore.isOpen) {
           settingsStore.closeSettings()
+          return
+        }
+        if (settingsStore.isHelpOpen) {
+          settingsStore.closeHelp()
           return
         }
         // Deselect agent in 3D scene

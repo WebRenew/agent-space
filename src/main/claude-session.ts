@@ -200,6 +200,7 @@ function parseStreamLine(
           is_error: obj.is_error as boolean | undefined,
           error: obj.error as string | undefined,
           usage: obj.usage as Record<string, unknown> | undefined,
+          modelUsage: obj.modelUsage as Record<string, unknown> | undefined,
           session_id: (obj.session_id as string) ?? sessionId,
         },
       }
@@ -208,6 +209,7 @@ function parseStreamLine(
     // assistant / user message with content blocks
     if (obj.type === 'assistant' || obj.type === 'user') {
       const message = (obj.message ?? obj) as Record<string, unknown>
+      const messageUsage = message.usage as Record<string, unknown> | undefined
       const contentBlocks = (message.content ?? []) as Array<Record<string, unknown>>
 
       // Return the last meaningful content block as an event
@@ -220,6 +222,7 @@ function parseStreamLine(
               id: block.id as string,
               name: block.name as string,
               input: (block.input ?? {}) as Record<string, unknown>,
+              usage: messageUsage,
             },
           }
         }
@@ -235,6 +238,7 @@ function parseStreamLine(
               tool_use_id: block.tool_use_id as string,
               content,
               is_error: block.is_error as boolean | undefined,
+              usage: messageUsage,
             },
           }
         }
@@ -243,7 +247,10 @@ function parseStreamLine(
           return {
             sessionId,
             type: 'thinking',
-            data: { thinking: (block.thinking as string) ?? '' },
+            data: {
+              thinking: (block.thinking as string) ?? '',
+              usage: messageUsage,
+            },
           }
         }
 
@@ -251,7 +258,10 @@ function parseStreamLine(
           return {
             sessionId,
             type: 'text',
-            data: { text: (block.text as string) ?? '' },
+            data: {
+              text: (block.text as string) ?? '',
+              usage: messageUsage,
+            },
           }
         }
       }

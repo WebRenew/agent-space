@@ -124,6 +124,7 @@ export const SHORTCUTS = {
   // Actions
   newTerminal:      { hotkey: { key: 'n', metaOrCtrl: true, shift: true }, label: `${MOD}${SHIFT}N`, description: 'New Terminal' },
   openSettings:     { hotkey: { key: ',', metaOrCtrl: true }, label: `${MOD},`, description: 'Open Settings' },
+  openHelp:         { hotkey: { key: 'F1' }, label: 'F1', description: 'Open Help' },
   toggleSidebar:    { hotkey: { key: 'b', metaOrCtrl: true }, label: `${MOD}B`, description: 'Toggle Right Column' },
   resetLayout:      { hotkey: { key: 'r', metaOrCtrl: true, shift: true }, label: `${MOD}${SHIFT}R`, description: 'Reset Layout' },
   closePanel:       { hotkey: { key: 'w', metaOrCtrl: true }, label: `${MOD}W`, description: 'Close Active Panel' },

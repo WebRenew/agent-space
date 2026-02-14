@@ -1,7 +1,7 @@
 import { ipcMain, dialog, BrowserWindow, shell } from 'electron'
 import fs from 'fs'
 import path from 'path'
-import { execFile, spawn } from 'child_process'
+import { execFile } from 'child_process'
 import os from 'os'
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -589,9 +589,11 @@ export function setupFilesystemHandlers(mainWindow?: BrowserWindow): void {
       if (!stat.isDirectory()) {
         throw new Error('Path is not a directory')
       }
-      if (process.platform === 'darwin') {
-        const child = spawn('open', ['-a', 'Terminal', resolved], { detached: true, stdio: 'ignore' })
-        child.unref()
+      // Avoid cross-app automation prompts by opening via default file manager.
+      // In-app terminal opening is handled in the renderer.
+      const errMsg = await shell.openPath(resolved)
+      if (errMsg) {
+        throw new Error(errMsg)
       }
     } catch (err) {
       console.error('[filesystem] openInTerminal error:', err)

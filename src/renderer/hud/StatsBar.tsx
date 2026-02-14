@@ -5,15 +5,16 @@ import { calculateTotalCost } from '../lib/costEngine'
 export function StatsBar() {
   const agents = useAgentStore((s) => s.agents)
   const subscription = useSettingsStore((s) => s.settings.subscription)
+  const primaryAgents = agents.filter((a) => !a.isSubagent)
 
-  const activeCount = agents.filter(
+  const activeCount = primaryAgents.filter(
     (a) => a.status !== 'idle' && a.status !== 'done'
   ).length
-  const totalTokensIn = agents.reduce((s, a) => s + a.tokens_input, 0)
-  const totalTokensOut = agents.reduce((s, a) => s + a.tokens_output, 0)
-  const totalFiles = agents.reduce((s, a) => s + a.files_modified, 0)
+  const totalTokensIn = primaryAgents.reduce((s, a) => s + a.tokens_input, 0)
+  const totalTokensOut = primaryAgents.reduce((s, a) => s + a.tokens_output, 0)
+  const totalFiles = primaryAgents.reduce((s, a) => s + a.files_modified, 0)
 
-  const allModelTokens = agents.reduce<Record<string, { input: number; output: number }>>(
+  const allModelTokens = primaryAgents.reduce<Record<string, { input: number; output: number }>>(
     (acc, a) => {
       for (const [model, t] of Object.entries(a.sessionStats?.tokensByModel ?? {})) {
         const prev = acc[model] ?? { input: 0, output: 0 }

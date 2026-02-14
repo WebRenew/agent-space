@@ -32,6 +32,80 @@ function nextMessageId(): string {
   return `msg-${++chatMessageCounter}`
 }
 
+interface UsageSnapshot {
+  inputTokens: number
+  outputTokens: number
+  tokensByModel: Record<string, { input: number; output: number }>
+  hasAnyUsage: boolean
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
+}
+
+function toFiniteNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return 0
+}
+
+function readTokenValue(record: Record<string, unknown> | null, keys: string[]): { found: boolean; value: number } {
+  if (!record) return { found: false, value: 0 }
+  for (const key of keys) {
+    if (key in record) {
+      return { found: true, value: toFiniteNumber(record[key]) }
+    }
+  }
+  return { found: false, value: 0 }
+}
+
+function cloneTokensByModel(
+  tokensByModel: Record<string, { input: number; output: number }>
+): Record<string, { input: number; output: number }> {
+  const clone: Record<string, { input: number; output: number }> = {}
+  for (const [model, tokens] of Object.entries(tokensByModel)) {
+    clone[model] = {
+      input: toFiniteNumber(tokens.input),
+      output: toFiniteNumber(tokens.output),
+    }
+  }
+  return clone
+}
+
+function parseUsageSnapshot(usageValue: unknown, modelUsageValue: unknown): UsageSnapshot {
+  const usage = asRecord(usageValue)
+  const modelUsage = asRecord(modelUsageValue)
+  const inputRead = readTokenValue(usage, ['input_tokens', 'inputTokens', 'prompt_tokens', 'promptTokens', 'input'])
+  const outputRead = readTokenValue(usage, ['output_tokens', 'outputTokens', 'completion_tokens', 'completionTokens', 'output'])
+
+  const tokensByModel: Record<string, { input: number; output: number }> = {}
+  if (modelUsage) {
+    for (const [model, raw] of Object.entries(modelUsage)) {
+      const entry = asRecord(raw)
+      if (!entry) continue
+      const modelInput = readTokenValue(entry, ['inputTokens', 'input_tokens', 'promptTokens', 'prompt_tokens', 'input']).value
+      const modelOutput = readTokenValue(entry, ['outputTokens', 'output_tokens', 'completionTokens', 'completion_tokens', 'output']).value
+      if (modelInput === 0 && modelOutput === 0) continue
+      tokensByModel[model] = { input: modelInput, output: modelOutput }
+    }
+  }
+
+  const modelInputSum = Object.values(tokensByModel).reduce((sum, t) => sum + t.input, 0)
+  const modelOutputSum = Object.values(tokensByModel).reduce((sum, t) => sum + t.output, 0)
+  const hasUsageFields = inputRead.found || outputRead.found
+  const hasModelUsage = Object.keys(tokensByModel).length > 0
+
+  return {
+    inputTokens: hasUsageFields ? inputRead.value : modelInputSum,
+    outputTokens: hasUsageFields ? outputRead.value : modelOutputSum,
+    tokensByModel,
+    hasAnyUsage: hasUsageFields || hasModelUsage,
+  }
+}
+
 /** Orchid-style typing indicator with cherry blossom */
 function TypingIndicator() {
   return (
@@ -67,6 +141,8 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
   const activeClaudeSessionIdRef = useRef<string | null>(null)
   const agentIdRef = useRef<string | null>(null)
   const activeRunDirectoryRef = useRef<string | null>(null)
+  const runTokenBaselineRef = useRef<{ input: number; output: number } | null>(null)
+  const runModelBaselineRef = useRef<Record<string, { input: number; output: number }> | null>(null)
   const subagentSeatCounter = useRef(0)
   const activeSubagents = useRef<Map<string, string>>(new Map()) // toolUseId → subagentId
 
@@ -101,6 +177,10 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
   const isDirectoryCustom = chatSession ? chatSession.directoryMode === 'custom' : false
   const hasStartedConversation = Boolean(chatSession?.agentId)
   const isRunActive = status === 'running' || Boolean(claudeSessionId)
+
+  useEffect(() => {
+    agentIdRef.current = chatSession?.agentId ?? null
+  }, [chatSession?.agentId])
 
   // Derive scope from working directory
   const currentScope = workingDir ? matchScope(workingDir, scopes) : null
@@ -171,6 +251,71 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
       console.error(`[ChatPanel] Failed to persist message: ${msg}`)
     })
   }, [scopeId, scopeName, scopes, workingDir])
+
+  const clearSubagentsForParent = useCallback((parentAgentId: string) => {
+    const subagentIds = new Set(activeSubagents.current.values())
+    for (const agent of useAgentStore.getState().agents) {
+      if (agent.isSubagent && agent.parentAgentId === parentAgentId) {
+        subagentIds.add(agent.id)
+      }
+    }
+    activeSubagents.current.clear()
+    for (const subId of subagentIds) {
+      removeAgent(subId)
+    }
+  }, [removeAgent])
+
+  const applyUsageSnapshot = useCallback(
+    (agentId: string, usageValue: unknown, modelUsageValue: unknown) => {
+      const snapshot = parseUsageSnapshot(usageValue, modelUsageValue)
+      if (!snapshot.hasAnyUsage) return
+
+      const current = useAgentStore.getState().agents.find((a) => a.id === agentId)
+      if (!current) return
+
+      if (!runTokenBaselineRef.current) {
+        runTokenBaselineRef.current = {
+          input: current.tokens_input,
+          output: current.tokens_output,
+        }
+      }
+      if (!runModelBaselineRef.current) {
+        runModelBaselineRef.current = cloneTokensByModel(current.sessionStats.tokensByModel)
+      }
+
+      const baseline = runTokenBaselineRef.current ?? {
+        input: current.tokens_input,
+        output: current.tokens_output,
+      }
+      const updates = {
+        tokens_input: baseline.input + snapshot.inputTokens,
+        tokens_output: baseline.output + snapshot.outputTokens,
+      } as {
+        tokens_input: number
+        tokens_output: number
+        sessionStats?: typeof current.sessionStats
+      }
+
+      if (Object.keys(snapshot.tokensByModel).length > 0) {
+        const modelBaseline = runModelBaselineRef.current ?? {}
+        const nextTokensByModel = cloneTokensByModel(modelBaseline)
+        for (const [model, tokens] of Object.entries(snapshot.tokensByModel)) {
+          const base = nextTokensByModel[model] ?? { input: 0, output: 0 }
+          nextTokensByModel[model] = {
+            input: base.input + tokens.input,
+            output: base.output + tokens.output,
+          }
+        }
+        updates.sessionStats = {
+          ...current.sessionStats,
+          tokensByModel: nextTokensByModel,
+        }
+      }
+
+      updateAgent(agentId, updates)
+    },
+    [updateAgent]
+  )
 
   // Keep chat session directory synced to workspace until the first message.
   // User-picked custom dirs are never overwritten by sidebar folder changes.
@@ -283,6 +428,10 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
       if (!activeSessionId || event.sessionId !== activeSessionId) return
 
       const agentId = agentIdRef.current
+      if (agentId) {
+        const usagePayload = event.data as { usage?: unknown; modelUsage?: unknown }
+        applyUsageSnapshot(agentId, usagePayload.usage, usagePayload.modelUsage)
+      }
 
       switch (event.type) {
         case 'init': {
@@ -396,7 +545,7 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
                 files_modified: 0,
                 started_at: Date.now(),
                 deskIndex: -1,
-                terminalId: agentId,
+                terminalId: subId,
                 isClaudeRunning: true,
                 appearance: randomAppearance(),
                 commitCount: 0,
@@ -455,7 +604,7 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
         }
 
         case 'result': {
-          const data = event.data as { result: string; is_error?: boolean; error?: string; usage?: Record<string, unknown> }
+          const data = event.data as { result: string; is_error?: boolean; error?: string }
 
           // Remove any lingering thinking messages
           setMessages((prev) => prev.filter((m) => m.role !== 'thinking'))
@@ -489,22 +638,17 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
           }
 
           if (agentId) {
-            // Extract token usage from the result event
-            const usage = data.usage as { input_tokens?: number; output_tokens?: number } | undefined
-            const inputTokens = typeof usage?.input_tokens === 'number' ? usage.input_tokens : 0
-            const outputTokens = typeof usage?.output_tokens === 'number' ? usage.output_tokens : 0
-
-            const current = useAgentStore.getState().agents.find((a) => a.id === agentId)
             updateAgent(agentId, {
               status: data.is_error ? 'error' : 'done',
               isClaudeRunning: false,
-              tokens_input: (current?.tokens_input ?? 0) + inputTokens,
-              tokens_output: (current?.tokens_output ?? 0) + outputTokens,
             })
+            clearSubagentsForParent(agentId)
           }
 
           setActiveClaudeSession(null)
           activeRunDirectoryRef.current = null
+          runTokenBaselineRef.current = null
+          runModelBaselineRef.current = null
           break
         }
 
@@ -523,16 +667,19 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
 
           if (agentId) {
             updateAgent(agentId, { status: 'error', isClaudeRunning: false })
+            clearSubagentsForParent(agentId)
           }
           setActiveClaudeSession(null)
           activeRunDirectoryRef.current = null
+          runTokenBaselineRef.current = null
+          runModelBaselineRef.current = null
           break
         }
       }
     })
 
     return unsub
-  }, [addEvent, persistMessage, setActiveClaudeSession, soundsEnabled, updateAgent])
+  }, [addEvent, applyUsageSnapshot, clearSubagentsForParent, persistMessage, setActiveClaudeSession, soundsEnabled, updateAgent])
 
   const handleSend = useCallback(
     async (message: string, files?: File[]) => {
@@ -670,6 +817,13 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
         }).catch(() => { /* fallback name stays */ })
       }
 
+      const currentAgent = useAgentStore.getState().agents.find((a) => a.id === agentId)
+      runTokenBaselineRef.current = {
+        input: currentAgent?.tokens_input ?? 0,
+        output: currentAgent?.tokens_output ?? 0,
+      }
+      runModelBaselineRef.current = cloneTokensByModel(currentAgent?.sessionStats.tokensByModel ?? {})
+
       try {
         const result = await window.electronAPI.claude.start({
           prompt,
@@ -692,6 +846,8 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
         setStatus('error')
         activeRunDirectoryRef.current = null
         updateAgent(agentId, { status: 'error', isClaudeRunning: false })
+        runTokenBaselineRef.current = null
+        runModelBaselineRef.current = null
       }
     },
     [
@@ -724,8 +880,11 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
 
     if (agentIdRef.current) {
       updateAgent(agentIdRef.current, { status: 'done', isClaudeRunning: false })
+      clearSubagentsForParent(agentIdRef.current)
     }
-  }, [claudeSessionId, setActiveClaudeSession, updateAgent])
+    runTokenBaselineRef.current = null
+    runModelBaselineRef.current = null
+  }, [claudeSessionId, clearSubagentsForParent, setActiveClaudeSession, updateAgent])
 
   const isRunning = isRunActive
 

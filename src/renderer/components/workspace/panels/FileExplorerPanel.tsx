@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { useAgentStore } from '../../../store/agents'
+import { useSettingsStore } from '../../../store/settings'
 import { useWorkspaceStore } from '../../../store/workspace'
+import { matchScope } from '../../../lib/scopeMatcher'
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -100,6 +103,9 @@ export function FileExplorerPanel({ onOpenFile }: Props) {
   const workspaceRoot = useWorkspaceStore((s) => s.rootPath)
   const openFolder = useWorkspaceStore((s) => s.openFolder)
   const recentFolders = useWorkspaceStore((s) => s.recentFolders)
+  const terminals = useAgentStore((s) => s.terminals)
+  const addTerminal = useAgentStore((s) => s.addTerminal)
+  const setActiveTerminal = useAgentStore((s) => s.setActiveTerminal)
 
   // browsePath is the currently displayed directory — starts at workspace root
   const [browsePath, setBrowsePath] = useState<string>('')
@@ -315,14 +321,38 @@ export function FileExplorerPanel({ onOpenFile }: Props) {
     setContextMenu(null)
   }, [contextMenu])
 
-  const handleOpenInTerminal = useCallback(() => {
+  const handleOpenInTerminal = useCallback(async () => {
     if (!contextMenu) return
     const dir = contextMenu.node.isDirectory
       ? contextMenu.node.path
       : contextMenu.node.path.split('/').slice(0, -1).join('/')
-    window.electronAPI.fs.openInTerminal(dir)
+    try {
+      const { id, cwd } = await window.electronAPI.terminal.create({ cols: 80, rows: 24, cwd: dir })
+      const { scopes } = useSettingsStore.getState().settings
+      const matched = matchScope(cwd, scopes)
+      const nextIndex = terminals.length + 1
+
+      addTerminal({
+        id,
+        label: `Terminal ${nextIndex}`,
+        isClaudeRunning: false,
+        scopeId: matched?.id ?? null,
+        cwd,
+      })
+      setActiveTerminal(id)
+
+      const unsub = window.electronAPI.terminal.onExit((exitId) => {
+        if (exitId !== id) return
+        const store = useAgentStore.getState()
+        store.removeAgent(id)
+        store.removeTerminal(id)
+        unsub()
+      })
+    } catch (err) {
+      console.error('[FileExplorer] Open in terminal failed:', err)
+    }
     setContextMenu(null)
-  }, [contextMenu])
+  }, [addTerminal, contextMenu, setActiveTerminal, terminals.length])
 
   const handleStartRename = useCallback(() => {
     if (!contextMenu) return
@@ -707,7 +737,7 @@ export function FileExplorerPanel({ onOpenFile }: Props) {
           <ContextMenuItem label="Delete" danger onClick={() => void handleDelete()} />
           <div style={{ height: 1, background: 'rgba(89,86,83,0.2)', margin: '4px 0' }} />
           <ContextMenuItem label="Reveal in Finder" onClick={handleRevealInFinder} />
-          <ContextMenuItem label="Open in Terminal" onClick={handleOpenInTerminal} />
+          <ContextMenuItem label="Open in Agent Terminal" onClick={() => void handleOpenInTerminal()} />
         </div>
       )}
     </div>

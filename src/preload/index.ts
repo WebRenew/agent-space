@@ -8,7 +8,7 @@ const electronAPI: ElectronAPI = {
     electron: process.versions.electron
   },
   terminal: {
-    create: (options?: { cols?: number; rows?: number }) =>
+    create: (options?: { cols?: number; rows?: number; cwd?: string }) =>
       ipcRenderer.invoke('terminal:create', options) as Promise<{ id: string; cwd: string }>,
 
     write: (id: string, data: string) =>
@@ -59,6 +59,12 @@ const electronAPI: ElectronAPI = {
       const handler = () => callback()
       ipcRenderer.on('menu:openSettings', handler)
       return () => { ipcRenderer.removeListener('menu:openSettings', handler) }
+    },
+
+    onOpenHelp: (callback: () => void) => {
+      const handler = () => callback()
+      ipcRenderer.on('menu:openHelp', handler)
+      return () => { ipcRenderer.removeListener('menu:openHelp', handler) }
     },
 
     onNewTerminal: (callback: () => void) => {

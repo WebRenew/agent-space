@@ -195,6 +195,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
   }
 
   const openSettings = (): void => send('menu:openSettings')
+  const openHelp = (): void => send('menu:openHelp')
   const newTerminal = (): void => send('menu:newTerminal')
   const focusChat = (): void => send('menu:focusChat')
   const resetLayout = (): void => send('menu:resetLayout')
@@ -295,6 +296,12 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             { role: 'front' },
           ],
         },
+        {
+          label: 'Help',
+          submenu: [
+            { label: 'Keyboard Shortcuts & Legend', accelerator: 'F1', click: openHelp },
+          ],
+        },
       ]
     : [
         {
@@ -336,6 +343,12 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             { role: 'zoomOut' },
             { type: 'separator' },
             { role: 'togglefullscreen' },
+          ],
+        },
+        {
+          label: 'Help',
+          submenu: [
+            { label: 'Keyboard Shortcuts & Legend', accelerator: 'F1', click: openHelp },
           ],
         },
       ]

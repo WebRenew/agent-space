@@ -4,7 +4,6 @@ import { Room } from './Room'
 import { Lighting } from './Lighting'
 import { Desk } from './Desk'
 import { AgentCharacter } from './AgentCharacter'
-import { MeetingTable } from './MeetingTable'
 import { OfficeCat } from './OfficeCat'
 import { useAgentStore } from '../store/agents'
 
@@ -20,15 +19,11 @@ function computeDeskPosition(index: number): [number, number, number] {
   return [X_OFFSET + col * X_SPACING, 0, Z_OFFSET + row * Z_SPACING]
 }
 
-// Meeting table positioned in the right side of the office
-const MEETING_TABLE_POS: [number, number, number] = [4.5, 0, 2.5]
-
 export function Office() {
   const agents = useAgentStore((s) => s.agents)
 
-  // Split agents into desk workers and subagents (meeting table)
+  // Show only primary chat/terminal agents in Office.
   const deskAgents = useMemo(() => agents.filter((a) => !a.isSubagent), [agents])
-  const subagents = useMemo(() => agents.filter((a) => a.isSubagent), [agents])
 
   // Only show desks for active desk agents — no empty desks
   const maxIndex = deskAgents.length > 0 ? Math.max(...deskAgents.map((a) => a.deskIndex)) : -1
@@ -59,11 +54,6 @@ export function Office() {
           </group>
         )
       })}
-
-      {/* Meeting table for subagents */}
-      {subagents.length > 0 && (
-        <MeetingTable position={MEETING_TABLE_POS} subagents={subagents} />
-      )}
 
       <OfficeCat />
 

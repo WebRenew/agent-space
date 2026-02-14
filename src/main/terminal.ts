@@ -48,7 +48,7 @@ export function setupTerminalHandlers(window: BrowserWindow): void {
   if (handlersRegistered) return
   handlersRegistered = true
 
-  ipcMain.handle('terminal:create', (_event, options?: { cols?: number; rows?: number }) => {
+  ipcMain.handle('terminal:create', (_event, options?: { cols?: number; rows?: number; cwd?: string }) => {
     const id = `term-${++idCounter}`
     const settings = getSettings()
 
@@ -58,9 +58,13 @@ export function setupTerminalHandlers(window: BrowserWindow): void {
       : getDefaultShell()
 
     const customDir = settings.general.customDirectory
-    const cwd = settings.general.startingDirectory === 'custom' && customDir && isValidDirectory(customDir)
+    const settingsCwd = settings.general.startingDirectory === 'custom' && customDir && isValidDirectory(customDir)
       ? customDir
       : os.homedir()
+    const requestedCwd = options?.cwd
+    const cwd = requestedCwd && isValidDirectory(requestedCwd)
+      ? requestedCwd
+      : settingsCwd
 
     const ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-256color',
