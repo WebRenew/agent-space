@@ -87,6 +87,7 @@ interface RunningTodoProcess {
 const TODO_RUNNER_DIR = path.join(os.homedir(), '.agent-space')
 const TODO_RUNNER_FILE = path.join(TODO_RUNNER_DIR, 'todo-runner.json')
 const TODO_RUNNER_TICK_MS = 5_000
+const TODO_RUNNER_FORCE_KILL_TIMEOUT_MS = 10_000
 const TODO_MAX_ATTEMPTS = 3
 
 let handlersRegistered = false
@@ -97,6 +98,7 @@ let jobsCache: TodoRunnerJobRecord[] = []
 const runtimeByJobId = new Map<string, TodoRunnerRuntime>()
 const runningProcessByJobId = new Map<string, RunningTodoProcess>()
 const stoppedByUserJobIds = new Set<string>()
+const forceKillTimerByJobId = new Map<string, NodeJS.Timeout>()
 
 function createRuntime(): TodoRunnerRuntime {
   return {
@@ -271,6 +273,51 @@ function ensureRuntime(jobId: string): TodoRunnerRuntime {
   return runtime
 }
 
+function clearForceKillTimer(jobId: string): void {
+  const timer = forceKillTimerByJobId.get(jobId)
+  if (!timer) return
+  clearTimeout(timer)
+  forceKillTimerByJobId.delete(jobId)
+}
+
+function scheduleForceKill(jobId: string, childProcess: ChildProcess, reason: string): void {
+  clearForceKillTimer(jobId)
+  const timer = setTimeout(() => {
+    forceKillTimerByJobId.delete(jobId)
+    try {
+      if (childProcess.exitCode !== null || childProcess.signalCode !== null) return
+      childProcess.kill('SIGKILL')
+      logMainEvent('todo_runner.process.force_kill', { jobId, reason })
+    } catch (err) {
+      logMainError('todo_runner.process.force_kill_failed', err, { jobId, reason })
+    }
+  }, TODO_RUNNER_FORCE_KILL_TIMEOUT_MS)
+  forceKillTimerByJobId.set(jobId, timer)
+}
+
+function stopRunningProcess(jobId: string, reason: string): void {
+  const running = runningProcessByJobId.get(jobId)
+  if (!running) return
+
+  stoppedByUserJobIds.add(jobId)
+  try {
+    running.process.kill('SIGTERM')
+  } catch (err) {
+    logMainError('todo_runner.process.stop_failed', err, { jobId, reason })
+  }
+  scheduleForceKill(jobId, running.process, reason)
+}
+
+function findLiveTodo(jobId: string, todoId: string): {
+  job: TodoRunnerJobRecord
+  todo: TodoItemState | null
+} | null {
+  const liveJob = jobsCache.find((entry) => entry.id === jobId)
+  if (!liveJob) return null
+  const liveTodo = liveJob.todos.find((entry) => entry.id === todoId) ?? null
+  return { job: liveJob, todo: liveTodo }
+}
+
 function mergeTodoStates(todoItems: string[], previousTodos: TodoItemState[]): TodoItemState[] {
   const merged: TodoItemState[] = []
 
@@ -416,15 +463,7 @@ function findJobById(jobId: string): TodoRunnerJobRecord {
 function deleteJob(jobId: string): void {
   if (!jobId) throw new Error('Job id is required')
 
-  const running = runningProcessByJobId.get(jobId)
-  if (running) {
-    stoppedByUserJobIds.add(jobId)
-    try {
-      running.process.kill('SIGTERM')
-    } catch {
-      // ignore
-    }
-  }
+  stopRunningProcess(jobId, 'delete')
 
   jobsCache = jobsCache.filter((job) => job.id !== jobId)
   runtimeByJobId.delete(jobId)
@@ -447,15 +486,7 @@ function pauseJob(jobId: string): TodoRunnerJobView {
   job.enabled = false
   job.updatedAt = Date.now()
 
-  const running = runningProcessByJobId.get(jobId)
-  if (running) {
-    stoppedByUserJobIds.add(jobId)
-    try {
-      running.process.kill('SIGTERM')
-    } catch {
-      // ignore
-    }
-  }
+  stopRunningProcess(jobId, 'pause')
 
   writeJobsToDisk(jobsCache)
   broadcastTodoRunnerUpdate()
@@ -533,6 +564,7 @@ async function runTodo(job: TodoRunnerJobRecord, todoIndex: number, trigger: Tod
   if (runningProcessByJobId.has(job.id)) return
   const todo = job.todos[todoIndex]
   if (!todo) return
+  const todoId = todo.id
 
   let cwdStat: fs.Stats
   try {
@@ -643,9 +675,17 @@ async function runTodo(job: TodoRunnerJobRecord, todoIndex: number, trigger: Tod
     proc.on('exit', (code) => {
       rl?.close()
       runningProcessByJobId.delete(job.id)
+      clearForceKillTimer(job.id)
 
       const completedAt = Date.now()
       const durationMs = completedAt - startedAt
+      const liveState = findLiveTodo(job.id, todoId)
+      if (!liveState) {
+        stoppedByUserJobIds.delete(job.id)
+        resolve()
+        return
+      }
+
       const runtimeNext = ensureRuntime(job.id)
       runtimeNext.isRunning = false
       runtimeNext.currentTodoIndex = null
@@ -667,41 +707,55 @@ async function runTodo(job: TodoRunnerJobRecord, todoIndex: number, trigger: Tod
         errorMessage = stderrTail.trim() || stdoutTail.trim() || `Runner exited with code ${code ?? 'null'}`
       }
 
-      if (!errorMessage) {
-        todo.status = 'done'
-        todo.lastError = null
+      if (wasStoppedByUser) {
+        if (liveState.todo) {
+          liveState.todo.status = 'pending'
+          liveState.todo.attempts = Math.max(0, liveState.todo.attempts - 1)
+          liveState.todo.lastError = null
+        }
+        runtimeNext.lastStatus = 'idle'
+        runtimeNext.lastError = null
+      } else if (!errorMessage) {
+        if (liveState.todo) {
+          liveState.todo.status = 'done'
+          liveState.todo.lastError = null
+        }
         runtimeNext.lastStatus = 'success'
         runtimeNext.lastError = null
         logMainEvent('todo_runner.todo.success', {
-          jobId: job.id,
-          jobName: job.name,
+          jobId: liveState.job.id,
+          jobName: liveState.job.name,
           todoIndex,
           trigger,
           durationMs,
         })
       } else {
-        todo.status = 'error'
-        todo.lastError = errorMessage
+        if (liveState.todo) {
+          liveState.todo.status = 'error'
+          liveState.todo.lastError = errorMessage
+        }
         runtimeNext.lastStatus = 'error'
         runtimeNext.lastError = errorMessage
         logMainEvent('todo_runner.todo.error', {
-          jobId: job.id,
-          jobName: job.name,
+          jobId: liveState.job.id,
+          jobName: liveState.job.name,
           todoIndex,
           trigger,
           durationMs,
           error: errorMessage,
         }, 'error')
 
-        if (todo.attempts >= TODO_MAX_ATTEMPTS) {
-          job.enabled = false
+        if (liveState.todo && liveState.todo.attempts >= TODO_MAX_ATTEMPTS) {
+          liveState.job.enabled = false
           runtimeNext.lastError = `${errorMessage} (attempt limit reached, job paused)`
         }
       }
 
-      todo.lastDurationMs = durationMs
-      job.updatedAt = completedAt
-      runtimeByJobId.set(job.id, runtimeNext)
+      if (liveState.todo) {
+        liveState.todo.lastDurationMs = durationMs
+      }
+      liveState.job.updatedAt = completedAt
+      runtimeByJobId.set(liveState.job.id, runtimeNext)
       writeJobsToDisk(jobsCache)
       broadcastTodoRunnerUpdate()
       resolve()
@@ -710,24 +764,42 @@ async function runTodo(job: TodoRunnerJobRecord, todoIndex: number, trigger: Tod
     proc.on('error', (err) => {
       rl?.close()
       runningProcessByJobId.delete(job.id)
+      clearForceKillTimer(job.id)
       const completedAt = Date.now()
       const durationMs = completedAt - startedAt
+      const wasStoppedByUser = stoppedByUserJobIds.has(job.id)
+      if (wasStoppedByUser) {
+        stoppedByUserJobIds.delete(job.id)
+      }
 
-      todo.status = 'error'
-      todo.lastError = `Failed to spawn runner: ${err.message}`
-      todo.lastDurationMs = durationMs
-      job.enabled = false
-      job.updatedAt = completedAt
+      const liveState = findLiveTodo(job.id, todoId)
+      if (liveState) {
+        if (liveState.todo) {
+          if (wasStoppedByUser) {
+            liveState.todo.status = 'pending'
+            liveState.todo.attempts = Math.max(0, liveState.todo.attempts - 1)
+            liveState.todo.lastError = null
+          } else {
+            liveState.todo.status = 'error'
+            liveState.todo.lastError = `Failed to spawn runner: ${err.message}`
+          }
+          liveState.todo.lastDurationMs = durationMs
+        }
+        if (!wasStoppedByUser) {
+          liveState.job.enabled = false
+        }
+        liveState.job.updatedAt = completedAt
 
-      const runtimeNext = ensureRuntime(job.id)
-      runtimeNext.isRunning = false
-      runtimeNext.currentTodoIndex = null
-      runtimeNext.lastRunAt = completedAt
-      runtimeNext.lastDurationMs = durationMs
-      runtimeNext.lastRunTrigger = trigger
-      runtimeNext.lastStatus = 'error'
-      runtimeNext.lastError = todo.lastError
-      runtimeByJobId.set(job.id, runtimeNext)
+        const runtimeNext = ensureRuntime(liveState.job.id)
+        runtimeNext.isRunning = false
+        runtimeNext.currentTodoIndex = null
+        runtimeNext.lastRunAt = completedAt
+        runtimeNext.lastDurationMs = durationMs
+        runtimeNext.lastRunTrigger = trigger
+        runtimeNext.lastStatus = wasStoppedByUser ? 'idle' : 'error'
+        runtimeNext.lastError = wasStoppedByUser ? null : liveState.todo?.lastError ?? `Failed to spawn runner: ${err.message}`
+        runtimeByJobId.set(liveState.job.id, runtimeNext)
+      }
 
       logMainError('todo_runner.todo.spawn_error', err, {
         jobId: job.id,
@@ -827,12 +899,8 @@ export function cleanupTodoRunner(): void {
   }
 
   for (const [jobId, running] of runningProcessByJobId) {
-    stoppedByUserJobIds.add(jobId)
-    try {
-      running.process.kill('SIGTERM')
-    } catch {
-      // ignore
-    }
+    void running
+    stopRunningProcess(jobId, 'cleanup')
   }
   runningProcessByJobId.clear()
 }
