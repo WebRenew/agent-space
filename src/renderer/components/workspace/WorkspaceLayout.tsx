@@ -131,6 +131,59 @@ function normalizeActiveTabs(value: unknown): Record<string, PanelId> {
   return activeTabs
 }
 
+function ensurePanelVisible(layout: Layout, panelId: PanelId): Layout {
+  if (findAllPanelsInLayout(layout).has(panelId)) return layout
+
+  const next = deepCloneLayout(layout)
+  if (next.length === 0) {
+    return [{ width: 1, rows: [{ slots: [panelId], slotWidths: [1], height: -1 }] }]
+  }
+
+  if (panelId === 'fileSearch') {
+    for (const col of next) {
+      for (const row of col.rows) {
+        for (let slotIndex = 0; slotIndex < row.slots.length; slotIndex++) {
+          const slot = row.slots[slotIndex]
+          if (Array.isArray(slot)) {
+            if (slot.includes('fileExplorer')) {
+              if (!slot.includes('fileSearch')) slot.push('fileSearch')
+              return next
+            }
+          } else if (slot === 'fileExplorer') {
+            row.slots[slotIndex] = ['fileExplorer', 'fileSearch']
+            return next
+          }
+        }
+      }
+    }
+  }
+
+  const firstColumn = next[0]
+  if (!firstColumn || firstColumn.rows.length === 0) {
+    if (firstColumn) {
+      firstColumn.rows.push({ slots: [panelId], slotWidths: [1], height: -1 })
+      return next
+    }
+    return [{ width: 1, rows: [{ slots: [panelId], slotWidths: [1], height: -1 }] }]
+  }
+
+  const firstRow = firstColumn.rows[0]
+  const firstSlot = firstRow.slots[0]
+  if (firstSlot === undefined) {
+    firstRow.slots = [panelId]
+    firstRow.slotWidths = [1]
+    return next
+  }
+
+  if (Array.isArray(firstSlot)) {
+    if (!firstSlot.includes(panelId)) firstSlot.push(panelId)
+  } else if (firstSlot !== panelId) {
+    firstRow.slots[0] = [firstSlot, panelId]
+  }
+
+  return next
+}
+
 function loadPersistedWorkspaceLayoutState(): {
   layout: Layout
   activeTabs: Record<string, PanelId>
@@ -141,8 +194,14 @@ function loadPersistedWorkspaceLayoutState(): {
     const parsed: unknown = JSON.parse(raw)
     if (!isObject(parsed)) return { layout: DEFAULT_LAYOUT, activeTabs: {} }
 
-    const layout = normalizeLayout(parsed.layout) ?? DEFAULT_LAYOUT
+    let layout = normalizeLayout(parsed.layout) ?? DEFAULT_LAYOUT
+    layout = ensurePanelVisible(layout, 'fileSearch')
+
     const activeTabs = normalizeActiveTabs(parsed.activeTabs)
+    for (const panelId of new Set(Object.values(activeTabs))) {
+      layout = ensurePanelVisible(layout, panelId)
+    }
+
     return { layout, activeTabs }
   } catch {
     return { layout: DEFAULT_LAYOUT, activeTabs: {} }
