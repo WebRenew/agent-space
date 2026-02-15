@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/webrenew/agent-space/tree/main/web/content/docs
+    about: Check docs and guides before filing an issue.
+  - name: Security report
+    url: https://github.com/webrenew/agent-space/security/advisories/new
+    about: Report vulnerabilities privately.

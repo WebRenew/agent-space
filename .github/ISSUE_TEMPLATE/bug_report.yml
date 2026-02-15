@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible bug in Agent Observer
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please provide enough context for maintainers to reproduce quickly.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: App version, commit SHA, or branch
+      placeholder: "v1.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Desktop app (Electron)
+        - Web app (Next.js)
+        - Docs
+        - Build/CI
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        OS:
+        Node:
+        pnpm:
+        Browser (if web):
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots / recordings
+      description: Paste logs and attach images if applicable
