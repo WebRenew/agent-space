@@ -206,7 +206,6 @@ export function simulateStep(agents: Agent[], now = Date.now()): SimulationUpdat
 
     const changes: Partial<Agent> = {}
     if (agent.status !== phase.status) changes.status = phase.status
-    if (agent.currentTask !== script.task) changes.currentTask = script.task
     if (inputDelta > 0) changes.tokens_input = agent.tokens_input + inputDelta
     if (outputDelta > 0) changes.tokens_output = agent.tokens_output + outputDelta
     if (filesDelta > 0) changes.files_modified = agent.files_modified + filesDelta
