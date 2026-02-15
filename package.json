@@ -18,9 +18,21 @@
     "prepare": "husky"
   },
   "keywords": [],
-  "author": "",
+  "author": "Webrenew",
   "license": "ISC",
   "packageManager": "pnpm@10.12.4",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webrenew/agent-space.git"
+  },
+  "bugs": {
+    "url": "https://github.com/webrenew/agent-space/issues"
+  },
+  "homepage": "https://github.com/webrenew/agent-space#readme",
+  "engines": {
+    "node": ">=20 <23",
+    "pnpm": ">=10.12.4"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
