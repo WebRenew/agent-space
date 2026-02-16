@@ -81,6 +81,8 @@ const INVALID_CRON_ERROR_PREFIX = 'Invalid cron expression:'
 
 let handlersRegistered = false
 let schedulerTimer: NodeJS.Timeout | null = null
+let schedulerTickInFlight = false
+let schedulerTickRequested = false
 let tasksCache: SchedulerTask[] = []
 
 const runtimeByTaskId = new Map<string, SchedulerTaskRuntime>()
@@ -755,33 +757,54 @@ async function runTaskById(taskId: string, trigger: SchedulerRunTrigger): Promis
 }
 
 async function schedulerTick(): Promise<void> {
+  if (schedulerTickInFlight) {
+    if (!schedulerTickRequested) {
+      logMainEvent('scheduler.tick.coalesced', { reason: 'in_flight' })
+    }
+    schedulerTickRequested = true
+    return
+  }
+  schedulerTickInFlight = true
+
   const now = new Date()
   const key = minuteKey(now)
+  try {
+    for (const task of tasksCache) {
+      if (!task.enabled) continue
+      if (runningProcessByTaskId.has(task.id)) continue
 
-  for (const task of tasksCache) {
-    if (!task.enabled) continue
-    if (runningProcessByTaskId.has(task.id)) continue
+      const parsed = getParsedCron(task.cron)
+      if (!parsed) continue
+      if (!matchesCronDate(parsed, now)) continue
 
-    const parsed = getParsedCron(task.cron)
-    if (!parsed) continue
-    if (!matchesCronDate(parsed, now)) continue
+      const runtime = runtimeByTaskId.get(task.id) ?? createRuntime()
+      if (runtime.lastRunMinuteKey === key) continue
+      runtime.lastRunMinuteKey = key
+      runtimeByTaskId.set(task.id, runtime)
 
-    const runtime = runtimeByTaskId.get(task.id) ?? createRuntime()
-    if (runtime.lastRunMinuteKey === key) continue
-    runtime.lastRunMinuteKey = key
-    runtimeByTaskId.set(task.id, runtime)
-
-    await runTask(task, 'cron')
+      await runTask(task, 'cron')
+    }
+  } finally {
+    schedulerTickInFlight = false
+    if (schedulerTickRequested) {
+      schedulerTickRequested = false
+      logMainEvent('scheduler.tick.replay', { reason: 'coalesced' })
+      kickSchedulerTick()
+    }
   }
+}
+
+function kickSchedulerTick(): void {
+  schedulerTick().catch((err) => {
+    logMainError('scheduler.tick.failed', err)
+  })
 }
 
 function startSchedulerLoop(): void {
   if (schedulerTimer) return
 
   schedulerTimer = setInterval(() => {
-    schedulerTick().catch((err) => {
-      logMainError('scheduler.tick.failed', err)
-    })
+    kickSchedulerTick()
   }, SCHEDULER_TICK_MS)
 }
 
@@ -818,6 +841,8 @@ export function cleanupScheduler(): void {
     clearInterval(schedulerTimer)
     schedulerTimer = null
   }
+  schedulerTickRequested = false
+  schedulerTickInFlight = false
   for (const [taskId, proc] of runningProcessByTaskId) {
     try {
       proc.kill('SIGTERM')
