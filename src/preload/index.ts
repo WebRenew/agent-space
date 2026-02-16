@@ -261,6 +261,9 @@ const electronAPI: ElectronAPI = {
     runNow: (taskId: string) =>
       ipcRenderer.invoke('scheduler:runNow', taskId),
 
+    debugRuntimeSize: () =>
+      ipcRenderer.invoke('scheduler:debugRuntimeSize') as Promise<number>,
+
     onUpdated: (callback: () => void) => {
       const handler = () => callback()
       ipcRenderer.on('scheduler:updated', handler)
