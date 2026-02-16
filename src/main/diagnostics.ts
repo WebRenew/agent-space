@@ -24,7 +24,10 @@ const LOG_DIR_NAME = 'logs'
 const LOG_FILE_NAME = 'app.ndjson'
 const ROTATED_FILE_NAME = 'app.previous.ndjson'
 const MAX_LOG_FILE_BYTES = 5 * 1024 * 1024
+const MAX_DIAGNOSTICS_QUEUE_LENGTH = 1000
 let diagnosticsWriteQueue: Promise<void> = Promise.resolve()
+let diagnosticsQueuedWrites = 0
+let diagnosticsDroppedWrites = 0
 
 function getLogsDirPath(): string {
   try {
@@ -60,12 +63,26 @@ function serializePayload(payload: Record<string, unknown> | undefined): Record<
   }
 }
 
-function enqueueDiagnosticsWrite(task: () => Promise<void>): void {
+function enqueueDiagnosticsWrite(task: () => Promise<void>): boolean {
+  if (diagnosticsQueuedWrites >= MAX_DIAGNOSTICS_QUEUE_LENGTH) {
+    diagnosticsDroppedWrites += 1
+    console.error('[diagnostics] Dropping diagnostics log entry because write queue is full.', {
+      maxQueueLength: MAX_DIAGNOSTICS_QUEUE_LENGTH,
+      droppedEntries: diagnosticsDroppedWrites,
+    })
+    return false
+  }
+
+  diagnosticsQueuedWrites += 1
   diagnosticsWriteQueue = diagnosticsWriteQueue
     .then(task)
     .catch((err) => {
       console.error('[diagnostics] Failed to append diagnostics log:', err)
     })
+    .finally(() => {
+      diagnosticsQueuedWrites = Math.max(0, diagnosticsQueuedWrites - 1)
+    })
+  return true
 }
 
 function isMissingFileError(err: unknown): boolean {
@@ -105,6 +122,12 @@ function appendDiagnostics(entry: DiagnosticsEntry): void {
     await rotateLogsIfNeeded(logPath)
     await fs.promises.appendFile(logPath, line, 'utf-8')
   })
+}
+
+export async function flushDiagnosticsWrites(): Promise<void> {
+  while (diagnosticsQueuedWrites > 0) {
+    await diagnosticsWriteQueue
+  }
 }
 
 function normalizeRendererRequest(

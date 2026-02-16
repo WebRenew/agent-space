@@ -12,10 +12,13 @@ interface TelemetryEntry {
 const TELEMETRY_DIR = path.join(os.homedir(), '.agent-observer')
 const TELEMETRY_FILE = path.join(TELEMETRY_DIR, 'telemetry.ndjson')
 const STARTUP_BREADCRUMB_LIMIT = 200
+const MAX_TELEMETRY_QUEUE_LENGTH = 1000
 
 const pendingStartupBreadcrumbs: TelemetryEntry[] = []
 const recentStartupBreadcrumbs: TelemetryEntry[] = []
 let telemetryWriteQueue: Promise<void> = Promise.resolve()
+let telemetryQueuedWrites = 0
+let telemetryDroppedWrites = 0
 
 function telemetryEnabled(): boolean {
   try {
@@ -25,12 +28,26 @@ function telemetryEnabled(): boolean {
   }
 }
 
-function enqueueTelemetryWrite(task: () => Promise<void>): void {
+function enqueueTelemetryWrite(task: () => Promise<void>): boolean {
+  if (telemetryQueuedWrites >= MAX_TELEMETRY_QUEUE_LENGTH) {
+    telemetryDroppedWrites += 1
+    console.error('[telemetry] Dropping telemetry entry because write queue is full.', {
+      maxQueueLength: MAX_TELEMETRY_QUEUE_LENGTH,
+      droppedEntries: telemetryDroppedWrites,
+    })
+    return false
+  }
+
+  telemetryQueuedWrites += 1
   telemetryWriteQueue = telemetryWriteQueue
     .then(task)
     .catch((err) => {
       console.error('[telemetry] Failed to append telemetry entry:', err)
     })
+    .finally(() => {
+      telemetryQueuedWrites = Math.max(0, telemetryQueuedWrites - 1)
+    })
+  return true
 }
 
 function appendEntry(entry: TelemetryEntry): void {
@@ -39,6 +56,12 @@ function appendEntry(entry: TelemetryEntry): void {
     await fs.promises.mkdir(TELEMETRY_DIR, { recursive: true })
     await fs.promises.appendFile(TELEMETRY_FILE, line, 'utf-8')
   })
+}
+
+export async function flushTelemetryWrites(): Promise<void> {
+  while (telemetryQueuedWrites > 0) {
+    await telemetryWriteQueue
+  }
 }
 
 function toErrorPayload(error: unknown): Record<string, unknown> {

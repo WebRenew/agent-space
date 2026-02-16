@@ -13,6 +13,7 @@ import { setupWorkspaceContextHandlers } from './workspace-context'
 import {
   addStartupBreadcrumb,
   flushStartupBreadcrumbs,
+  flushTelemetryWrites,
   getTelemetryLogPath,
   recordException,
   recordIpcRegistrationError,
@@ -20,6 +21,7 @@ import {
   recordTelemetryEvent,
 } from './telemetry'
 import {
+  flushDiagnosticsWrites,
   getDiagnosticsLogPath,
   logMainError,
   logMainEvent,
@@ -224,6 +226,8 @@ if (!gotTheLock) {
   let chatPopoutHandlerRegistered = false
   let rendererCrashStreak = 0
   let rendererCrashStreakWindowStart = 0
+  let isBeforeQuitDrainInProgress = false
+  let canQuitAfterDrain = false
 
   app.on('second-instance', () => {
     recordTelemetryEvent('app.second_instance')
@@ -404,20 +408,42 @@ if (!gotTheLock) {
     recordException('app.whenReady', err)
   })
 
-  app.on('before-quit', () => {
-    recordTelemetryEvent('app.before_quit')
-    // Close all popped-out chat windows first
-    for (const [, win] of chatWindows) {
-      if (!win.isDestroyed()) win.close()
-    }
-    chatWindows.clear()
+  app.on('before-quit', (event) => {
+    if (canQuitAfterDrain) return
 
-    cleanupTerminals()
-    cleanupClaudeSessions()
-    cleanupLspServers()
-    cleanupMemories().catch(() => {})
-    cleanupScheduler()
-    cleanupTodoRunner()
+    event.preventDefault()
+    if (isBeforeQuitDrainInProgress) return
+    isBeforeQuitDrainInProgress = true
+
+    void (async () => {
+      recordTelemetryEvent('app.before_quit')
+      // Close all popped-out chat windows first
+      for (const [, win] of chatWindows) {
+        if (!win.isDestroyed()) win.close()
+      }
+      chatWindows.clear()
+
+      cleanupTerminals()
+      cleanupClaudeSessions()
+      cleanupLspServers()
+      cleanupScheduler()
+      cleanupTodoRunner()
+
+      try {
+        await cleanupMemories()
+      } catch (err) {
+        logMainError('cleanup.memories', err)
+      }
+
+      await flushTelemetryWrites()
+      await flushDiagnosticsWrites()
+      canQuitAfterDrain = true
+      app.quit()
+    })().catch((err) => {
+      logMainError('app.before_quit', err)
+      canQuitAfterDrain = true
+      app.quit()
+    })
   })
 
   app.on('window-all-closed', () => {
