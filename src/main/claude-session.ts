@@ -39,6 +39,7 @@ const activeSessions = new Map<string, ActiveSession>()
 let sessionCounter = 0
 
 const CLAUDE_SESSION_DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000
+const NODE_MAX_TIMEOUT_MS = 2_147_483_647
 const CLAUDE_SESSION_FORCE_KILL_TIMEOUT_MS = 5_000
 
 function resolveSessionMaxRuntimeMs(): number {
@@ -50,6 +51,12 @@ function resolveSessionMaxRuntimeMs(): number {
       `[claude-session] Invalid AGENT_SPACE_CLAUDE_MAX_RUNTIME_MS=${raw}; using default ${CLAUDE_SESSION_DEFAULT_MAX_RUNTIME_MS}`
     )
     return CLAUDE_SESSION_DEFAULT_MAX_RUNTIME_MS
+  }
+  if (parsed > NODE_MAX_TIMEOUT_MS) {
+    console.warn(
+      `[claude-session] AGENT_SPACE_CLAUDE_MAX_RUNTIME_MS=${raw} exceeds timer limit; capping to ${NODE_MAX_TIMEOUT_MS}`
+    )
+    return NODE_MAX_TIMEOUT_MS
   }
   return parsed
 }
