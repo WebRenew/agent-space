@@ -405,7 +405,10 @@ export function SettingsPanel() {
     }
 
     await runSchedulerAction(task, async () => {
-      await window.electronAPI.scheduler.delete(task.id)
+      const result = await window.electronAPI.scheduler.delete(task.id)
+      if (!result.stopped) {
+        throw new Error('Delete timed out while stopping the running scheduler task')
+      }
     })
   }, [runSchedulerAction])
 

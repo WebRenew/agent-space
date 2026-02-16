@@ -11,7 +11,6 @@ import {
   clearManagedForceKillTimer,
   resolveManagedRuntimeMs,
   runManagedProcess,
-  scheduleManagedForceKill,
   terminateManagedProcess,
 } from './process-runner'
 import { assertAppNotShuttingDown } from './shutdown-state'
@@ -68,6 +67,14 @@ interface SchedulerTaskWithRuntime extends SchedulerTask {
   lastRunTrigger: SchedulerRunTrigger | null
   lastScheduledMinuteKey: string | null
   lastBackfillMinutes: number | null
+}
+
+interface SchedulerDeleteResult {
+  taskId: string
+  wasRunning: boolean
+  stopped: boolean
+  forced: boolean
+  timedOut: boolean
 }
 
 interface PendingSchedulerCronRun {
@@ -172,21 +179,6 @@ function resolveSchedulerDispatchDrainTimeoutMs(): number {
 
 function clearSchedulerForceKillTimer(taskId: string): void {
   clearManagedForceKillTimer(forceKillTimerByTaskId, taskId)
-}
-
-function scheduleSchedulerForceKill(taskId: string, proc: ChildProcess, reason: string): void {
-  scheduleManagedForceKill({
-    timers: forceKillTimerByTaskId,
-    key: taskId,
-    process: proc,
-    delayMs: SCHEDULER_FORCE_KILL_TIMEOUT_MS,
-    onForceKill: () => {
-      logMainEvent('scheduler.process.force_kill', { taskId, reason }, 'warn')
-    },
-    onForceKillFailed: (err) => {
-      logMainError('scheduler.process.force_kill_failed', err, { taskId, reason })
-    },
-  })
 }
 
 export function __testOnlyCanDispatchPendingCronRun(
@@ -634,8 +626,109 @@ function upsertTask(input: SchedulerTaskInput): SchedulerTaskWithRuntime {
   return toTaskWithRuntime(task)
 }
 
-function deleteTask(taskId: string): void {
+function createSchedulerDeleteResult(
+  taskId: string,
+  overrides: Partial<SchedulerDeleteResult> = {}
+): SchedulerDeleteResult {
+  return {
+    taskId,
+    wasRunning: false,
+    stopped: true,
+    forced: false,
+    timedOut: false,
+    ...overrides,
+  }
+}
+
+async function stopRunningTaskForDelete(taskId: string): Promise<SchedulerDeleteResult> {
+  const runningProc = runningProcessByTaskId.get(taskId)
+  if (!runningProc) {
+    return createSchedulerDeleteResult(taskId)
+  }
+
+  logMainEvent('scheduler.delete.stop.start', { taskId })
+  clearSchedulerForceKillTimer(taskId)
+
+  try {
+    const stopResult = await terminateManagedProcess({
+      process: runningProc,
+      sigtermTimeoutMs: SCHEDULER_FORCE_KILL_TIMEOUT_MS,
+      sigkillTimeoutMs: SCHEDULER_FORCE_KILL_TIMEOUT_MS,
+      onSigtermSent: () => {
+        logMainEvent('scheduler.process.stop.sigterm_sent', { taskId, reason: 'delete' })
+      },
+      onSigtermFailed: (err) => {
+        logMainError('scheduler.process.stop_failed', err, { taskId, reason: 'delete' })
+      },
+      onForceKill: () => {
+        logMainEvent('scheduler.process.force_kill', { taskId, reason: 'delete' }, 'warn')
+      },
+      onForceKillFailed: (err) => {
+        logMainError('scheduler.process.force_kill_failed', err, { taskId, reason: 'delete' })
+      },
+    })
+
+    if (!stopResult.timedOut) {
+      runningProcessByTaskId.delete(taskId)
+      clearSchedulerForceKillTimer(taskId)
+    }
+
+    const deleteResult = createSchedulerDeleteResult(taskId, {
+      wasRunning: true,
+      stopped: !stopResult.timedOut,
+      forced: stopResult.escalatedToSigkill,
+      timedOut: stopResult.timedOut,
+    })
+
+    logMainEvent('scheduler.delete.stop.completed', {
+      taskId,
+      stopped: deleteResult.stopped,
+      forced: deleteResult.forced,
+      timedOut: deleteResult.timedOut,
+      exitCode: stopResult.exitCode,
+      signalCode: stopResult.signalCode,
+      durationMs: stopResult.durationMs,
+    }, stopResult.timedOut || stopResult.escalatedToSigkill ? 'warn' : 'info')
+
+    return deleteResult
+  } catch (err) {
+    logMainError('scheduler.delete.stop_failed', err, { taskId })
+    return createSchedulerDeleteResult(taskId, {
+      wasRunning: true,
+      stopped: false,
+      forced: false,
+      timedOut: true,
+    })
+  }
+}
+
+async function deleteTaskAndAwaitStop(taskId: string): Promise<SchedulerDeleteResult> {
   if (!taskId) throw new Error('Task id is required')
+
+  const stopResult = await stopRunningTaskForDelete(taskId)
+  if (stopResult.timedOut) {
+    const task = tasksCache.find((entry) => entry.id === taskId)
+    if (task) {
+      task.enabled = false
+      task.updatedAt = Date.now()
+      writeTasksToDisk(tasksCache)
+    }
+    pendingCronRunsByTaskId.delete(taskId)
+
+    const runtime = runtimeByTaskId.get(taskId)
+    if (runtime) {
+      runtime.lastStatus = 'error'
+      runtime.lastError = 'Delete timed out while stopping the running task'
+      runtimeByTaskId.set(taskId, runtime)
+    }
+
+    logMainEvent('scheduler.delete.completed', {
+      deleted: false,
+      ...stopResult,
+    }, 'warn')
+    broadcastSchedulerUpdate()
+    return stopResult
+  }
 
   tasksCache = tasksCache.filter((task) => task.id !== taskId)
   runtimeByTaskId.delete(taskId)
@@ -644,19 +737,13 @@ function deleteTask(taskId: string): void {
   loadValidationErrorsByTaskId.delete(taskId)
   cronParseCache.clear()
 
-  const runningProc = runningProcessByTaskId.get(taskId)
-  if (runningProc) {
-    try {
-      runningProc.kill('SIGTERM')
-      scheduleSchedulerForceKill(taskId, runningProc, 'delete')
-    } catch (err) {
-      logMainError('scheduler.process.stop_failed', err, { taskId, reason: 'delete' })
-      scheduleSchedulerForceKill(taskId, runningProc, 'delete')
-    }
-  }
-
   writeTasksToDisk(tasksCache)
+  logMainEvent('scheduler.delete.completed', {
+    deleted: true,
+    ...stopResult,
+  })
   broadcastSchedulerUpdate()
+  return stopResult
 }
 
 async function runTask(
@@ -1189,7 +1276,7 @@ export function setupSchedulerHandlers(): void {
 
   ipcMain.handle('scheduler:delete', async (_event, taskId: string) => {
     assertAppNotShuttingDown('scheduler:delete')
-    deleteTask(taskId)
+    return await deleteTaskAndAwaitStop(taskId)
   })
 
   ipcMain.handle('scheduler:runNow', async (_event, taskId: string) => {

@@ -22,10 +22,18 @@ interface SmokeSchedulerTaskInput {
   yoloMode: boolean
 }
 
+interface SmokeSchedulerDeleteResult {
+  taskId: string
+  wasRunning: boolean
+  stopped: boolean
+  forced: boolean
+  timedOut: boolean
+}
+
 interface SmokeSchedulerAPI {
   list: () => Promise<SmokeSchedulerTask[]>
   upsert: (task: SmokeSchedulerTaskInput) => Promise<SmokeSchedulerTask>
-  delete: (taskId: string) => Promise<void>
+  delete: (taskId: string) => Promise<SmokeSchedulerDeleteResult>
   runNow: (taskId: string) => Promise<SmokeSchedulerTask>
   debugRuntimeSize: () => Promise<number>
 }
@@ -197,17 +205,22 @@ test('desktop smoke flows: launch, reopen, folder scope, popout, terminal', asyn
         await new Promise((resolve) => setTimeout(resolve, 50))
       }
 
-      await api.scheduler.delete(taskId)
+      const deleteResult = await api.scheduler.delete(taskId)
       const runResult = await runResultPromise
       const tasksAfterDelete = await api.scheduler.list()
       return {
         taskId,
+        deleteResult,
         sawRunning,
         stillListed: tasksAfterDelete.some((task) => task.id === taskId),
         runResult,
       }
     }, { workingDirectory: process.cwd() })
     expect(deleteWhileRunning.sawRunning).toBe(true)
+    expect(deleteWhileRunning.deleteResult.taskId).toBe(deleteWhileRunning.taskId)
+    expect(deleteWhileRunning.deleteResult.wasRunning).toBe(true)
+    expect(deleteWhileRunning.deleteResult.stopped).toBe(true)
+    expect(deleteWhileRunning.deleteResult.timedOut).toBe(false)
     expect(deleteWhileRunning.stillListed).toBe(false)
     if (deleteWhileRunning.runResult.status === 'rejected') {
       expect(deleteWhileRunning.runResult.message).toContain(`Task deleted during run: ${deleteWhileRunning.taskId}`)
