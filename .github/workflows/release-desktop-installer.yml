@@ -20,8 +20,19 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Resolve target tag
+        id: target_tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.target_tag.outputs.value }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -39,15 +50,6 @@ jobs:
 
       - name: Build DMG installer
         run: pnpm package:dmg
-
-      - name: Resolve target tag
-        id: target_tag
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Verify installer artifact
         run: |

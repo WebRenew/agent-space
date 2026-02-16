@@ -15,6 +15,8 @@ const GITHUB_API_VERSION = "2022-11-28";
 const GITHUB_USER_AGENT = "agent-observer-web-download";
 
 async function resolveInstallerUrl(): Promise<string> {
+  let fallbackReleaseUrl = AGENT_SPACE_RELEASES_URL;
+
   try {
     const latestReleaseResponse = await fetch(AGENT_SPACE_RELEASES_API_URL, {
       headers: {
@@ -25,7 +27,7 @@ async function resolveInstallerUrl(): Promise<string> {
       next: { revalidate: 300 },
     });
 
-    if (!latestReleaseResponse.ok) return AGENT_SPACE_RELEASES_URL;
+    if (!latestReleaseResponse.ok) return fallbackReleaseUrl;
 
     const latestRelease = (await latestReleaseResponse.json()) as GitHubLatestRelease;
     const latestAssets = Array.isArray(latestRelease.assets) ? latestRelease.assets : [];
@@ -36,6 +38,7 @@ async function resolveInstallerUrl(): Promise<string> {
       typeof latestRelease.html_url === "string" && latestRelease.html_url.startsWith("http")
         ? latestRelease.html_url
         : AGENT_SPACE_RELEASES_URL;
+    fallbackReleaseUrl = latestReleaseUrl;
 
     const releaseListResponse = await fetch(AGENT_SPACE_RELEASES_LIST_API_URL, {
       headers: {
@@ -53,8 +56,9 @@ async function resolveInstallerUrl(): Promise<string> {
       Array.isArray(releases) ? releases : []
     );
     return installerUrl ?? latestReleaseUrl;
-  } catch {
-    return AGENT_SPACE_RELEASES_URL;
+  } catch (error: unknown) {
+    console.error("Failed to resolve installer URL", error);
+    return fallbackReleaseUrl;
   }
 }
 
