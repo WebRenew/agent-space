@@ -82,6 +82,9 @@ export const IPC_CHANNELS = {
   context: {
     getWorkspaceSnapshot: 'context:getWorkspaceSnapshot',
   },
+  updates: {
+    getStatus: 'updates:getStatus',
+  },
   scheduler: {
     list: 'scheduler:list',
     upsert: 'scheduler:upsert',
@@ -198,6 +201,15 @@ export interface TodoRunnerPauseResult {
   stopOutcome: TodoRunnerStopOutcome
 }
 
+export interface AppUpdateStatusResult {
+  currentVersion: string
+  latestVersion: string | null
+  updateAvailable: boolean
+  releaseUrl: string
+  checkedAt: number
+  error: string | null
+}
+
 export interface ElectronAPI {
   versions: {
     node: string
@@ -277,6 +289,9 @@ export interface ElectronAPI {
   }
   context: {
     getWorkspaceSnapshot: (directory: string) => Promise<WorkspaceContextSnapshot>
+  }
+  updates: {
+    getStatus: () => Promise<AppUpdateStatusResult>
   }
   scheduler: {
     list: () => Promise<SchedulerTask[]>
