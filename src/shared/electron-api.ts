@@ -159,6 +159,7 @@ export interface ElectronAPI {
     upsert: (task: SchedulerTaskInput) => Promise<SchedulerTask>
     delete: (taskId: string) => Promise<void>
     runNow: (taskId: string) => Promise<SchedulerTask>
+    debugRuntimeSize: () => Promise<number>
     onUpdated: (callback: () => void) => Unsubscribe
   }
   todoRunner: {

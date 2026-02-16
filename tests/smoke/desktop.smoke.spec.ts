@@ -6,9 +6,32 @@ import { test, expect, _electron as electron } from '@playwright/test'
 interface SmokeSchedulerTask {
   id: string
   enabled: boolean
+  isRunning: boolean
   lastStatus: string
   lastError: string | null
   nextRunAt: number | null
+}
+
+interface SmokeSchedulerTaskInput {
+  id?: string
+  name: string
+  cron: string
+  prompt: string
+  workingDirectory: string
+  enabled: boolean
+  yoloMode: boolean
+}
+
+interface SmokeSchedulerAPI {
+  list: () => Promise<SmokeSchedulerTask[]>
+  upsert: (task: SmokeSchedulerTaskInput) => Promise<SmokeSchedulerTask>
+  delete: (taskId: string) => Promise<void>
+  runNow: (taskId: string) => Promise<SmokeSchedulerTask>
+  debugRuntimeSize: () => Promise<number>
+}
+
+interface SmokeElectronAPI {
+  scheduler: SmokeSchedulerAPI
 }
 
 test('desktop smoke flows: launch, reopen, folder scope, popout, terminal', async () => {
@@ -39,6 +62,26 @@ test('desktop smoke flows: launch, reopen, folder scope, popout, terminal', asyn
       },
     ], null, 2)
   )
+  const fakeClaudeDir = path.join(tempSchedulerHomeDir, '.local', 'bin')
+  const fakeClaudePath = path.join(fakeClaudeDir, 'claude')
+  await fs.mkdir(fakeClaudeDir, { recursive: true })
+  await fs.writeFile(
+    fakeClaudePath,
+    [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then',
+      '  echo "smoke-claude 0.0.0"',
+      '  exit 0',
+      'fi',
+      "trap 'exit 0' TERM INT",
+      'echo \'{"type":"system","subtype":"init","session_id":"smoke"}\'',
+      'sleep 1',
+      'echo \'{"type":"result","is_error":false}\'',
+      'sleep 30',
+      '',
+    ].join('\n'),
+    { mode: 0o755 }
+  )
 
   const electronApp = await electron.launch({
     cwd: process.cwd(),
@@ -67,9 +110,9 @@ test('desktop smoke flows: launch, reopen, folder scope, popout, terminal', asyn
     // actionable errors and auto-disabled on load.
     const schedulerTasks = await mainWindow.evaluate(async () => {
       const api = (window as unknown as {
-        electronAPI: { scheduler: { list: () => Promise<unknown> } }
+        electronAPI: SmokeElectronAPI
       }).electronAPI
-      return (await api.scheduler.list()) as SmokeSchedulerTask[]
+      return await api.scheduler.list()
     })
     const invalidCronTask = schedulerTasks.find((task) => task.id === invalidCronTaskId)
     expect(invalidCronTask).toBeDefined()
@@ -86,6 +129,68 @@ test('desktop smoke flows: launch, reopen, folder scope, popout, terminal', asyn
         return persisted.find((task) => task.id === invalidCronTaskId)?.enabled
       })
       .toBe(false)
+
+    // Regression check: deleting a running task should not leak scheduler
+    // runtime state entries for removed task ids.
+    const runtimeSizeBeforeDeleteWhileRunning = await mainWindow.evaluate(async () => {
+      const api = (window as unknown as { electronAPI: SmokeElectronAPI }).electronAPI
+      return await api.scheduler.debugRuntimeSize()
+    })
+    const deleteWhileRunning = await mainWindow.evaluate(async ({ workingDirectory }) => {
+      const api = (window as unknown as { electronAPI: SmokeElectronAPI }).electronAPI
+      const created = await api.scheduler.upsert({
+        name: 'Smoke delete while running',
+        cron: '* * * * *',
+        prompt: 'smoke delete while running',
+        workingDirectory,
+        enabled: false,
+        yoloMode: false,
+      })
+
+      const taskId = created.id
+      const runResultPromise = api.scheduler
+        .runNow(taskId)
+        .then(() => ({ status: 'resolved' as const, message: null as string | null }))
+        .catch((err: unknown) => ({
+          status: 'rejected' as const,
+          message: String(err),
+        }))
+
+      const runStartDeadline = Date.now() + 5_000
+      let sawRunning = false
+      while (Date.now() < runStartDeadline) {
+        const current = await api.scheduler.list()
+        const activeTask = current.find((task) => task.id === taskId)
+        if (activeTask?.isRunning) {
+          sawRunning = true
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+
+      await api.scheduler.delete(taskId)
+      const runResult = await runResultPromise
+      const tasksAfterDelete = await api.scheduler.list()
+      return {
+        taskId,
+        sawRunning,
+        stillListed: tasksAfterDelete.some((task) => task.id === taskId),
+        runResult,
+      }
+    }, { workingDirectory: process.cwd() })
+    expect(deleteWhileRunning.sawRunning).toBe(true)
+    expect(deleteWhileRunning.stillListed).toBe(false)
+    if (deleteWhileRunning.runResult.status === 'rejected') {
+      expect(deleteWhileRunning.runResult.message).toContain(`Task deleted during run: ${deleteWhileRunning.taskId}`)
+    }
+    await expect
+      .poll(async () => (
+        await mainWindow.evaluate(async () => {
+          const api = (window as unknown as { electronAPI: SmokeElectronAPI }).electronAPI
+          return await api.scheduler.debugRuntimeSize()
+        })
+      ))
+      .toBe(runtimeSizeBeforeDeleteWhileRunning)
 
     const chooseFolderButton = mainWindow.getByRole('button', { name: 'Choose folder' }).first()
     if (await chooseFolderButton.count()) {

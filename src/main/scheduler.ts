@@ -84,6 +84,10 @@ const cronParseCache = new Map<string, ParsedCron>()
 const loadValidationErrorsByTaskId = new Map<string, string>()
 const forceKillTimerByTaskId = new Map<string, NodeJS.Timeout>()
 
+function taskExists(taskId: string): boolean {
+  return tasksCache.some((task) => task.id === taskId)
+}
+
 function resolveSchedulerRunMaxRuntimeMs(): number {
   const raw = process.env.AGENT_SPACE_SCHEDULER_MAX_RUNTIME_MS
   if (!raw) return SCHEDULER_RUN_DEFAULT_MAX_RUNTIME_MS
@@ -707,6 +711,21 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
 
       const completedAt = Date.now()
       const duration = completedAt - startedAt
+
+      if (!taskExists(task.id)) {
+        runtimeByTaskId.delete(task.id)
+        logMainEvent('scheduler.run.skip_runtime_write_deleted_task', {
+          taskId: task.id,
+          taskName: task.name,
+          trigger,
+          durationMs: duration,
+          code,
+        })
+        broadcastSchedulerUpdate()
+        resolve()
+        return
+      }
+
       const finalRuntime = runtimeByTaskId.get(task.id) ?? createRuntime()
       finalRuntime.lastRunAt = completedAt
       finalRuntime.lastDurationMs = duration
@@ -746,6 +765,21 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
       runningProcessByTaskId.delete(task.id)
       const completedAt = Date.now()
       const duration = completedAt - startedAt
+
+      if (!taskExists(task.id)) {
+        runtimeByTaskId.delete(task.id)
+        logMainEvent('scheduler.run.skip_runtime_write_deleted_task', {
+          taskId: task.id,
+          taskName: task.name,
+          trigger,
+          durationMs: duration,
+          error: err.message,
+        })
+        broadcastSchedulerUpdate()
+        resolve()
+        return
+      }
+
       const finalRuntime = runtimeByTaskId.get(task.id) ?? createRuntime()
       finalRuntime.lastRunAt = completedAt
       finalRuntime.lastDurationMs = duration
@@ -770,7 +804,11 @@ async function runTaskById(taskId: string, trigger: SchedulerRunTrigger): Promis
   }
 
   await runTask(task, trigger)
-  return toTaskWithRuntime(task)
+  const latestTask = tasksCache.find((entry) => entry.id === taskId)
+  if (!latestTask) {
+    throw new Error(`Task deleted during run: ${taskId}`)
+  }
+  return toTaskWithRuntime(latestTask)
 }
 
 async function schedulerTick(): Promise<void> {
@@ -825,6 +863,10 @@ export function setupSchedulerHandlers(): void {
 
   ipcMain.handle('scheduler:runNow', async (_event, taskId: string) => {
     return await runTaskById(taskId, 'manual')
+  })
+
+  ipcMain.handle('scheduler:debugRuntimeSize', () => {
+    return runtimeByTaskId.size
   })
 }
 
