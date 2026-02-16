@@ -142,6 +142,9 @@ const electronAPI: ElectronAPI = {
       IPC_CHANNELS.context.getWorkspaceSnapshot
     ),
   },
+  updates: {
+    getStatus: invokeFor<ElectronAPI['updates']['getStatus']>(IPC_CHANNELS.updates.getStatus),
+  },
   scheduler: {
     list: invokeFor<ElectronAPI['scheduler']['list']>(IPC_CHANNELS.scheduler.list),
     upsert: invokeFor<ElectronAPI['scheduler']['upsert']>(IPC_CHANNELS.scheduler.upsert),

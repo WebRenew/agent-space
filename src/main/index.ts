@@ -10,6 +10,7 @@ import { setupAgentNamerHandlers } from './agent-namer'
 import { setupSchedulerHandlers, cleanupScheduler } from './scheduler'
 import { setupTodoRunnerHandlers, cleanupTodoRunner } from './todo-runner'
 import { setupWorkspaceContextHandlers } from './workspace-context'
+import { setupUpdateHandlers } from './app-updates'
 import {
   addStartupBreadcrumb,
   flushStartupBreadcrumbs,
@@ -423,6 +424,7 @@ if (!gotTheLock) {
     flushStartupBreadcrumbs()
     runStartupStep('filesystem_handlers', () => setupFilesystemHandlers(mainWindow!))
     runStartupStep('workspace_context_handlers', () => setupWorkspaceContextHandlers())
+    runStartupStep('update_handlers', () => setupUpdateHandlers())
     runStartupStep('lsp_handlers', () => setupLspHandlers(mainWindow!))
     runStartupStep('memories_handlers', () => setupMemoriesHandlers())
     runStartupStep('agent_namer_handlers', () => setupAgentNamerHandlers(mainWindow!))
