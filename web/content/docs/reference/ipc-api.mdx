@@ -57,9 +57,9 @@ Methods:
 
 - `list(): Promise<TodoRunnerJob[]>`
 - `upsert(job: TodoRunnerJobInput): Promise<TodoRunnerJob>`
-- `delete(jobId: string): Promise<void>`
+- `delete(jobId: string): Promise<TodoRunnerDeleteResult>`
 - `start(jobId: string): Promise<TodoRunnerJob>`
-- `pause(jobId: string): Promise<TodoRunnerJob>`
+- `pause(jobId: string): Promise<TodoRunnerPauseResult>`
 - `reset(jobId: string): Promise<TodoRunnerJob>`
 - `onUpdated(callback: () => void): Unsubscribe`
 
@@ -94,6 +94,7 @@ Returned jobs include runtime/progress fields:
 - `blockedTodos`
 - `currentTodoIndex`
 - `nextTodoText`
+- `nextRetryAt`
 
 Persistence location:
 

@@ -25,6 +25,7 @@ interface TodoItemState {
   lastError: string | null
   lastRunAt: number | null
   lastDurationMs: number | null
+  nextRetryAt: number | null
 }
 
 interface TodoRunnerJobRecord {
@@ -84,6 +85,7 @@ interface TodoRunnerJobView {
   blockedTodos: number
   currentTodoIndex: number | null
   nextTodoText: string | null
+  nextRetryAt: number | null
 }
 
 interface RunningTodoProcess {
@@ -117,6 +119,8 @@ const TODO_RUNNER_FORCE_KILL_TIMEOUT_MS = 10_000
 const TODO_RUNNER_DISPATCH_DRAIN_TIMEOUT_MS = 5_000
 const TODO_RUNNER_ENV_VALUE_MAX_CHARS = 2_048
 const TODO_MAX_ATTEMPTS = 3
+const TODO_RUNNER_RETRY_BACKOFF_BASE_MS = 15_000
+const TODO_RUNNER_RETRY_BACKOFF_MAX_MS = 5 * 60 * 1000
 
 let handlersRegistered = false
 let todoRunnerTimer: NodeJS.Timeout | null = null
@@ -213,6 +217,42 @@ function isJobDispatchEligible(jobId: string): boolean {
     runningProcessByJobId.has(jobId),
     pendingStartByJobId.has(jobId)
   )
+}
+
+export function __testOnlyComputeTodoRetryBackoffMs(attempts: number): number {
+  const normalizedAttempts = Math.max(1, Number.isFinite(attempts) ? Math.floor(attempts) : 1)
+  const rawBackoffMs = TODO_RUNNER_RETRY_BACKOFF_BASE_MS * Math.pow(2, Math.max(0, normalizedAttempts - 1))
+  return Math.min(TODO_RUNNER_RETRY_BACKOFF_MAX_MS, rawBackoffMs)
+}
+
+export function __testOnlyIsTodoRetryReady(nextRetryAt: number | null, nowTimestampMs: number): boolean {
+  if (nextRetryAt == null) return true
+  return nextRetryAt <= nowTimestampMs
+}
+
+function computeTodoNextRetryAt(failedAtMs: number, attempts: number): number {
+  return failedAtMs + __testOnlyComputeTodoRetryBackoffMs(attempts)
+}
+
+function scheduleTodoRetry(
+  job: TodoRunnerJobRecord,
+  todo: TodoItemState,
+  todoIndex: number,
+  trigger: TodoRunnerRunTrigger,
+  failedAtMs: number
+): void {
+  const nextRetryAt = computeTodoNextRetryAt(failedAtMs, todo.attempts)
+  const backoffMs = Math.max(0, nextRetryAt - failedAtMs)
+  todo.nextRetryAt = nextRetryAt
+  logMainEvent('todo_runner.todo.retry_scheduled', {
+    jobId: job.id,
+    jobName: job.name,
+    todoIndex,
+    trigger,
+    attempts: todo.attempts,
+    backoffMs,
+    nextRetryAt,
+  }, 'warn')
 }
 
 export async function __testOnlyWaitForTodoRunPromises(
@@ -390,6 +430,7 @@ function readJobsFromDisk(): TodoRunnerJobRecord[] {
           lastError: typeof todoObj.lastError === 'string' ? todoObj.lastError : null,
           lastRunAt: typeof todoObj.lastRunAt === 'number' ? todoObj.lastRunAt : null,
           lastDurationMs: typeof todoObj.lastDurationMs === 'number' ? todoObj.lastDurationMs : null,
+          nextRetryAt: typeof todoObj.nextRetryAt === 'number' ? todoObj.nextRetryAt : null,
         })
       }
 
@@ -539,6 +580,7 @@ function mergeTodoStates(todoItems: string[], previousTodos: TodoItemState[]): T
       merged.push({
         ...previous,
         status: previous.status === 'running' ? 'pending' : previous.status,
+        nextRetryAt: previous.status === 'running' ? null : previous.nextRetryAt ?? null,
       })
       continue
     }
@@ -551,6 +593,7 @@ function mergeTodoStates(todoItems: string[], previousTodos: TodoItemState[]): T
       lastError: null,
       lastRunAt: null,
       lastDurationMs: null,
+      nextRetryAt: null,
     })
   }
 
@@ -567,6 +610,7 @@ function hasTodoListChanged(todoItems: string[], previousTodos: TodoItemState[])
 
 function toJobWithRuntime(job: TodoRunnerJobRecord): TodoRunnerJobView {
   const runtime = ensureRuntime(job.id)
+  const now = Date.now()
   const totalTodos = job.todos.length
   const completedTodos = job.todos.filter((todo) => todo.status === 'done').length
   const failedTodos = job.todos.filter((todo) => todo.status === 'error').length
@@ -577,6 +621,9 @@ function toJobWithRuntime(job: TodoRunnerJobRecord): TodoRunnerJobView {
   const nextTodo = job.todos.find(
     (todo) => todo.status !== 'done' && todo.attempts < TODO_MAX_ATTEMPTS
   ) ?? null
+  const nextRetryAt = nextTodo && !__testOnlyIsTodoRetryReady(nextTodo.nextRetryAt, now)
+    ? nextTodo.nextRetryAt
+    : null
 
   return {
     id: job.id,
@@ -601,6 +648,7 @@ function toJobWithRuntime(job: TodoRunnerJobRecord): TodoRunnerJobView {
     blockedTodos,
     currentTodoIndex: runtime.currentTodoIndex,
     nextTodoText: nextTodo?.text ?? null,
+    nextRetryAt,
   }
 }
 
@@ -663,6 +711,7 @@ function upsertJob(input: TodoRunnerJobInput): TodoRunnerJobView {
       lastError: null,
       lastRunAt: null,
       lastDurationMs: null,
+      nextRetryAt: null,
     })),
     createdAt: now,
     updatedAt: now,
@@ -765,6 +814,7 @@ function resetJob(jobId: string): TodoRunnerJobView {
     lastError: null,
     lastRunAt: null,
     lastDurationMs: null,
+    nextRetryAt: null,
   }))
   job.updatedAt = Date.now()
   manualRunRequestedJobIds.delete(jobId)
@@ -798,7 +848,11 @@ export function __testOnlyCollectStaleRunningTodoIndices(
 }
 
 export function __testOnlyFindNextRunnableTodoIndex(
-  todos: Array<Pick<TodoItemState, 'status' | 'attempts'>>
+  todos: Array<
+    Pick<TodoItemState, 'status' | 'attempts'>
+    & Partial<Pick<TodoItemState, 'nextRetryAt'>>
+  >,
+  nowTimestampMs = Date.now()
 ): number | null {
   for (let index = 0; index < todos.length; index += 1) {
     const todo = todos[index]
@@ -806,6 +860,9 @@ export function __testOnlyFindNextRunnableTodoIndex(
     if (todo.status === 'running') continue
     if (todo.status === 'done') continue
     if (todo.attempts >= TODO_MAX_ATTEMPTS) continue
+    if (!__testOnlyIsTodoRetryReady(todo.nextRetryAt ?? null, nowTimestampMs)) {
+      return null
+    }
     return index
   }
   return null
@@ -820,6 +877,7 @@ function reconcileStaleRunningTodos(job: TodoRunnerJobRecord): number {
     const staleTodo = job.todos[staleIndex]
     if (staleTodo) {
       staleTodo.status = 'pending'
+      staleTodo.nextRetryAt = null
     }
   }
 
@@ -924,6 +982,7 @@ async function runTodo(job: TodoRunnerJobRecord, todoIndex: number, trigger: Tod
   todo.attempts += 1
   todo.lastError = null
   todo.lastRunAt = startedAt
+  todo.nextRetryAt = null
   job.updatedAt = startedAt
 
   writeJobsToDisk(jobsCache)
@@ -1043,13 +1102,20 @@ async function runTodo(job: TodoRunnerJobRecord, todoIndex: number, trigger: Tod
         liveState.todo.status = 'pending'
         liveState.todo.attempts = Math.max(0, liveState.todo.attempts - 1)
         liveState.todo.lastError = null
+        liveState.todo.nextRetryAt = null
       } else if (payloadTransportError) {
         liveState.todo.status = 'pending'
         liveState.todo.attempts = Math.max(0, liveState.todo.attempts - 1)
         liveState.todo.lastError = payloadTransportErrorMessage
+        scheduleTodoRetry(liveState.job, liveState.todo, todoIndex, trigger, completedAt)
       } else {
         liveState.todo.status = 'error'
         liveState.todo.lastError = `Failed to spawn runner: ${processResult.spawnError.message}`
+        if (liveState.todo.attempts < TODO_MAX_ATTEMPTS) {
+          scheduleTodoRetry(liveState.job, liveState.todo, todoIndex, trigger, completedAt)
+        } else {
+          liveState.todo.nextRetryAt = null
+        }
       }
       liveState.todo.lastDurationMs = durationMs
     }
@@ -1109,6 +1175,7 @@ async function runTodo(job: TodoRunnerJobRecord, todoIndex: number, trigger: Tod
       liveState.todo.status = 'pending'
       liveState.todo.attempts = Math.max(0, liveState.todo.attempts - 1)
       liveState.todo.lastError = null
+      liveState.todo.nextRetryAt = null
     }
     runtimeNext.lastStatus = 'idle'
     runtimeNext.lastError = null
@@ -1116,6 +1183,7 @@ async function runTodo(job: TodoRunnerJobRecord, todoIndex: number, trigger: Tod
     if (liveState.todo) {
       liveState.todo.status = 'done'
       liveState.todo.lastError = null
+      liveState.todo.nextRetryAt = null
     }
     runtimeNext.lastStatus = 'success'
     runtimeNext.lastError = null
@@ -1130,6 +1198,11 @@ async function runTodo(job: TodoRunnerJobRecord, todoIndex: number, trigger: Tod
     if (liveState.todo) {
       liveState.todo.status = 'error'
       liveState.todo.lastError = errorMessage
+      if (liveState.todo.attempts < TODO_MAX_ATTEMPTS) {
+        scheduleTodoRetry(liveState.job, liveState.todo, todoIndex, trigger, completedAt)
+      } else {
+        liveState.todo.nextRetryAt = null
+      }
     }
     runtimeNext.lastStatus = 'error'
     runtimeNext.lastError = errorMessage

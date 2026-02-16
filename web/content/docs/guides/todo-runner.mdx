@@ -50,6 +50,8 @@ Each job includes:
 - One item is active at a time.
 - Success marks item as done and advances.
 - Failure retries up to 3 attempts per item.
+- Failed retries use deterministic exponential cooldown (`15s`, `30s`, `60s`, capped at `5m`).
+- Job card surfaces the next retry timestamp when an item is cooling down.
 - Item hitting max attempts becomes blocked; job pauses.
 - You can **Pause**, **Start**, or **Reset Progress**.
 

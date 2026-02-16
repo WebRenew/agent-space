@@ -473,6 +473,7 @@ export function SettingsPanel() {
       blockedTodos: 0,
       currentTodoIndex: null,
       nextTodoText: null,
+      nextRetryAt: null,
       isDraft: true,
       todoItemsText: '',
     }

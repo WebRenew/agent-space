@@ -283,6 +283,7 @@ export interface TodoRunnerJob {
   blockedTodos: number
   currentTodoIndex: number | null
   nextTodoText: string | null
+  nextRetryAt: number | null
 }
 
 export interface Scope {
