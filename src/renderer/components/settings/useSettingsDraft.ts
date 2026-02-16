@@ -9,7 +9,9 @@ export function useSettingsDraft(
 
   useEffect(() => {
     if (isOpen) setDraft(currentSettings)
-  }, [isOpen, currentSettings])
+    // Sync draft only when modal opens; preserve in-progress edits while open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
 
   return [draft, setDraft]
 }
