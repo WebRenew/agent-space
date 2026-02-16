@@ -7,9 +7,7 @@ import type {
   ClaudeSettingSource,
   ClaudeWorkspaceProfileRule,
   CursorStyle,
-  SchedulerTask,
   SchedulerTaskInput,
-  TodoRunnerJob,
   TodoRunnerJobInput,
   Scope,
   SubscriptionType,
@@ -18,6 +16,18 @@ import type {
 import { DEFAULT_SETTINGS, SUBSCRIPTION_OPTIONS } from '../types'
 import { THEME_NAMES, THEME_LABELS, getTheme } from '../lib/terminalThemes'
 import { usePluginCatalog } from '../plugins/usePluginCatalog'
+import { SchedulerTab } from './settings/SchedulerTab'
+import { TodoRunnerTab } from './settings/TodoRunnerTab'
+import {
+  NumberInput,
+  Row,
+  Section,
+  Select,
+  Toggle,
+} from './settings/common'
+import { parseCsv, todoItemsFromText, todoItemsToText } from './settings/utils'
+import type { SchedulerTaskDraft, TodoRunnerJobDraft } from './settings/types'
+import { useSettingsDraft } from './settings/useSettingsDraft'
 
 type Tab = 'general' | 'appearance' | 'terminal' | 'scopes' | 'schedules' | 'todoRunner' | 'subscription'
 
@@ -62,10 +72,6 @@ const SCOPE_COLOR_PRESETS = [
   '#22d3ee', '#e879f9', '#fb923c', '#34d399', '#f472b6',
 ]
 
-type SchedulerTaskDraft = SchedulerTask & { isDraft?: boolean }
-type TodoRunnerJobDraft = TodoRunnerJob & { isDraft?: boolean; todoItemsText: string }
-
-const DEFAULT_CRON_EXAMPLES = ['*/15 * * * *', '0 * * * *', '0 9 * * 1-5', '30 18 * * *']
 const CLAUDE_SETTING_SOURCE_OPTIONS: ClaudeSettingSource[] = ['user', 'project', 'local']
 const CLAUDE_PERMISSION_MODE_OPTIONS: ClaudePermissionMode[] = [
   'default',
@@ -76,151 +82,12 @@ const CLAUDE_PERMISSION_MODE_OPTIONS: ClaudePermissionMode[] = [
   'plan',
 ]
 
-function formatDateTime(timestamp: number | null): string {
-  if (!timestamp) return 'Never'
-  return new Date(timestamp).toLocaleString()
-}
-
-function formatDuration(durationMs: number | null): string {
-  if (!durationMs || durationMs <= 0) return '0s'
-  const seconds = Math.round(durationMs / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainderSeconds = seconds % 60
-  if (minutes < 60) return `${minutes}m ${remainderSeconds}s`
-  const hours = Math.floor(minutes / 60)
-  const remainderMinutes = minutes % 60
-  return `${hours}h ${remainderMinutes}m`
-}
-
-function parseCsv(value: string): string[] {
-  return value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-}
-
-function todoItemsToText(items: string[]): string {
-  return items.join('\n')
-}
-
-function todoItemsFromText(value: string): string[] {
-  return value
-    .split('\n')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-}
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      style={{
-        position: 'relative', width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
-        background: checked ? '#548C5A' : 'rgba(89,86,83,0.3)', transition: 'background 0.2s ease',
-      }}
-    >
-      <span
-        style={{
-          position: 'absolute', top: 2, left: checked ? 18 : 2,
-          width: 16, height: 16, borderRadius: '50%', background: '#9A9692',
-          transition: 'left 0.2s ease',
-        }}
-      />
-    </button>
-  )
-}
-
-function Select({
-  value,
-  options,
-  labels,
-  onChange
-}: {
-  value: string
-  options: string[]
-  labels?: Record<string, string>
-  onChange: (v: string) => void
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{
-        background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
-        borderRadius: 6, padding: '5px 8px', fontSize: 13, color: '#9A9692',
-        outline: 'none', fontFamily: 'inherit', minWidth: 160,
-      }}
-    >
-      {options.map((opt) => (
-        <option key={opt} value={opt} style={{ background: '#0E0E0D' }}>
-          {labels?.[opt] ?? opt}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-function NumberInput({
-  value,
-  min,
-  max,
-  step,
-  onChange
-}: {
-  value: number
-  min?: number
-  max?: number
-  step?: number
-  onChange: (v: number) => void
-}) {
-  return (
-    <input
-      type="number"
-      value={value}
-      min={min}
-      max={max}
-      step={step}
-      onChange={(e) => {
-        const parsed = Number(e.target.value)
-        if (!isNaN(parsed) && parsed >= (min ?? 0) && parsed <= (max ?? Infinity)) {
-          onChange(parsed)
-        }
-      }}
-      style={{
-        background: 'rgba(89,86,83,0.15)', border: '1px solid rgba(89,86,83,0.3)',
-        borderRadius: 6, padding: '5px 8px', fontSize: 13, color: '#9A9692',
-        outline: 'none', fontFamily: 'inherit', width: 80,
-      }}
-    />
-  )
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
-      <span style={{ fontSize: 13, color: '#9A9692' }}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{children}</div>
-    </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: 1, color: '#74747C', marginBottom: 8 }}>{title}</div>
-      <div>{children}</div>
-    </div>
-  )
-}
-
 export function SettingsPanel() {
   const isOpen = useSettingsStore((s) => s.isOpen)
   const currentSettings = useSettingsStore((s) => s.settings)
   const closeSettings = useSettingsStore((s) => s.closeSettings)
   const [activeTab, setActiveTab] = useState<Tab>('general')
-  const [draft, setDraft] = useState<AppSettings>(currentSettings)
+  const [draft, setDraft] = useSettingsDraft(isOpen, currentSettings)
   const [scheduleDrafts, setScheduleDrafts] = useState<SchedulerTaskDraft[]>([])
   const [schedulerLoading, setSchedulerLoading] = useState(false)
   const [schedulerError, setSchedulerError] = useState<string | null>(null)
@@ -230,12 +97,6 @@ export function SettingsPanel() {
   const [todoRunnerError, setTodoRunnerError] = useState<string | null>(null)
   const [todoRunnerBusyId, setTodoRunnerBusyId] = useState<string | null>(null)
   const pluginCatalog = usePluginCatalog()
-
-  // Sync draft when modal opens
-  useEffect(() => {
-    if (isOpen) setDraft(currentSettings)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen])
 
   const loadSchedules = useCallback(async () => {
     setSchedulerLoading(true)
@@ -1470,639 +1331,35 @@ export function SettingsPanel() {
           )}
 
           {activeTab === 'schedules' && (
-            <>
-              <Section title="CRON TASKS">
-                <div style={{ fontSize: 12, color: '#74747C', marginBottom: 8, lineHeight: 1.5 }}>
-                  Run Claude prompts on a cron schedule in a selected directory.
-                  Use five cron fields: minute hour day month weekday.
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-                  {DEFAULT_CRON_EXAMPLES.map((example) => (
-                    <span
-                      key={example}
-                      style={{
-                        fontSize: 11,
-                        color: '#595653',
-                        border: '1px solid rgba(89,86,83,0.25)',
-                        borderRadius: 999,
-                        padding: '2px 8px',
-                      }}
-                    >
-                      {example}
-                    </span>
-                  ))}
-                </div>
-
-                {schedulerError && (
-                  <div
-                    style={{
-                      marginBottom: 10,
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      border: '1px solid rgba(196,80,80,0.4)',
-                      background: 'rgba(196,80,80,0.1)',
-                      color: '#c45050',
-                      fontSize: 12,
-                    }}
-                  >
-                    {schedulerError}
-                  </div>
-                )}
-
-                {schedulerLoading && (
-                  <div style={{ fontSize: 12, color: '#595653', marginBottom: 10 }}>
-                    Loading schedules...
-                  </div>
-                )}
-
-                {scheduleDrafts.length === 0 && !schedulerLoading && (
-                  <div style={{ fontSize: 12, color: '#595653', marginBottom: 10 }}>
-                    No schedules yet.
-                  </div>
-                )}
-
-                {scheduleDrafts.map((task) => {
-                  const busy = schedulerBusyId === task.id
-                  const statusColor =
-                    task.lastStatus === 'success'
-                      ? '#548C5A'
-                      : task.lastStatus === 'error'
-                        ? '#c45050'
-                        : task.lastStatus === 'running'
-                          ? '#d4a040'
-                          : '#74747C'
-
-                  return (
-                    <div
-                      key={task.id}
-                      style={{
-                        border: '1px solid rgba(89,86,83,0.25)',
-                        borderRadius: 8,
-                        padding: 10,
-                        marginBottom: 10,
-                        background: 'rgba(14,14,13,0.35)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <input
-                          type="text"
-                          value={task.name}
-                          onChange={(e) => updateScheduleDraft(task.id, { name: e.target.value })}
-                          placeholder="Task name"
-                          style={{
-                            flex: 1,
-                            background: 'rgba(89,86,83,0.15)',
-                            border: '1px solid rgba(89,86,83,0.3)',
-                            borderRadius: 6,
-                            padding: '5px 8px',
-                            fontSize: 13,
-                            color: '#9A9692',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                          }}
-                        />
-                        <Toggle
-                          checked={task.enabled}
-                          onChange={(enabled) => updateScheduleDraft(task.id, { enabled })}
-                        />
-                      </div>
-
-                      <Row label="Cron">
-                        <input
-                          type="text"
-                          value={task.cron}
-                          onChange={(e) => updateScheduleDraft(task.id, { cron: e.target.value })}
-                          placeholder="0 9 * * 1-5"
-                          style={{
-                            width: 170,
-                            background: 'rgba(89,86,83,0.15)',
-                            border: '1px solid rgba(89,86,83,0.3)',
-                            borderRadius: 6,
-                            padding: '5px 8px',
-                            fontSize: 13,
-                            color: '#9A9692',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                          }}
-                        />
-                      </Row>
-
-                      <Row label="Directory">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <input
-                            type="text"
-                            value={task.workingDirectory}
-                            onChange={(e) => updateScheduleDraft(task.id, { workingDirectory: e.target.value })}
-                            placeholder="/path/to/project"
-                            style={{
-                              width: 220,
-                              background: 'rgba(89,86,83,0.15)',
-                              border: '1px solid rgba(89,86,83,0.3)',
-                              borderRadius: 6,
-                              padding: '5px 8px',
-                              fontSize: 13,
-                              color: '#9A9692',
-                              outline: 'none',
-                              fontFamily: 'inherit',
-                            }}
-                          />
-                          <button
-                            onClick={() => void browseScheduleDirectory(task.id)}
-                            style={{
-                              padding: '5px 10px',
-                              fontSize: 12,
-                              fontWeight: 500,
-                              background: 'rgba(89,86,83,0.15)',
-                              border: '1px solid rgba(89,86,83,0.3)',
-                              borderRadius: 6,
-                              color: '#9A9692',
-                              cursor: 'pointer',
-                              fontFamily: 'inherit',
-                            }}
-                          >
-                            Browse...
-                          </button>
-                        </div>
-                      </Row>
-
-                      <Row label="YOLO mode">
-                        <Toggle
-                          checked={task.yoloMode}
-                          onChange={(yoloMode) => updateScheduleDraft(task.id, { yoloMode })}
-                        />
-                      </Row>
-
-                      <div style={{ marginTop: 8 }}>
-                        <div style={{ fontSize: 10, color: '#74747C', marginBottom: 4, letterSpacing: 0.8 }}>
-                          PROMPT
-                        </div>
-                        <textarea
-                          value={task.prompt}
-                          onChange={(e) => updateScheduleDraft(task.id, { prompt: e.target.value })}
-                          placeholder="What should Claude do on each run?"
-                          rows={4}
-                          style={{
-                            width: '100%',
-                            background: 'rgba(89,86,83,0.15)',
-                            border: '1px solid rgba(89,86,83,0.3)',
-                            borderRadius: 6,
-                            padding: '7px 8px',
-                            fontSize: 12,
-                            color: '#9A9692',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                            resize: 'vertical',
-                            lineHeight: 1.45,
-                          }}
-                        />
-                      </div>
-
-                      <div style={{ marginTop: 8, fontSize: 11, color: '#74747C', lineHeight: 1.5 }}>
-                        <div>
-                          Status:{' '}
-                          <span style={{ color: statusColor, fontWeight: 600 }}>
-                            {task.isRunning ? 'running' : task.lastStatus}
-                          </span>
-                        </div>
-                        <div>Next run: {formatDateTime(task.nextRunAt)}</div>
-                        <div>
-                          Last run: {formatDateTime(task.lastRunAt)}
-                          {task.lastDurationMs != null ? ` (${formatDuration(task.lastDurationMs)})` : ''}
-                        </div>
-                        {task.lastError && (
-                          <div style={{ color: '#c45050' }}>Last error: {task.lastError}</div>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
-                        {!task.isDraft && (
-                          <button
-                            onClick={() => void runScheduleNow(task)}
-                            disabled={busy}
-                            style={{
-                              padding: '5px 10px',
-                              fontSize: 12,
-                              fontWeight: 500,
-                              background: 'rgba(84,140,90,0.14)',
-                              border: '1px solid rgba(84,140,90,0.35)',
-                              borderRadius: 6,
-                              color: '#7fb887',
-                              cursor: busy ? 'default' : 'pointer',
-                              fontFamily: 'inherit',
-                              opacity: busy ? 0.5 : 1,
-                            }}
-                          >
-                            Run now
-                          </button>
-                        )}
-                        <button
-                          onClick={() => void saveSchedule(task)}
-                          disabled={busy}
-                          style={{
-                            padding: '5px 10px',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            background: 'rgba(89,86,83,0.15)',
-                            border: '1px solid rgba(89,86,83,0.3)',
-                            borderRadius: 6,
-                            color: '#9A9692',
-                            cursor: busy ? 'default' : 'pointer',
-                            fontFamily: 'inherit',
-                            opacity: busy ? 0.5 : 1,
-                          }}
-                        >
-                          Save task
-                        </button>
-                        <button
-                          onClick={() => void removeSchedule(task)}
-                          disabled={busy}
-                          style={{
-                            padding: '5px 10px',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            background: 'rgba(196,80,80,0.12)',
-                            border: '1px solid rgba(196,80,80,0.32)',
-                            borderRadius: 6,
-                            color: '#c45050',
-                            cursor: busy ? 'default' : 'pointer',
-                            fontFamily: 'inherit',
-                            opacity: busy ? 0.5 : 1,
-                          }}
-                        >
-                          {task.isDraft ? 'Discard' : 'Delete'}
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-
-                <button
-                  onClick={addScheduleDraft}
-                  style={{
-                    marginTop: 4,
-                    padding: '5px 12px',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    background: 'rgba(89,86,83,0.15)',
-                    border: '1px solid rgba(89,86,83,0.3)',
-                    borderRadius: 6,
-                    color: '#9A9692',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  + Add Schedule
-                </button>
-              </Section>
-            </>
+            <SchedulerTab
+              schedulerError={schedulerError}
+              schedulerLoading={schedulerLoading}
+              schedulerBusyId={schedulerBusyId}
+              scheduleDrafts={scheduleDrafts}
+              updateScheduleDraft={updateScheduleDraft}
+              browseScheduleDirectory={browseScheduleDirectory}
+              runScheduleNow={runScheduleNow}
+              saveSchedule={saveSchedule}
+              removeSchedule={removeSchedule}
+              addScheduleDraft={addScheduleDraft}
+            />
           )}
 
           {activeTab === 'todoRunner' && (
-            <>
-              <Section title="TODO RUNNER">
-                <div style={{ fontSize: 12, color: '#74747C', marginBottom: 8, lineHeight: 1.5 }}>
-                  Run a large todo list sequentially until complete using an external runner command.
-                  This is designed for Agent SDK workers (without Claude Code CLI coupling).
-                </div>
-                <div style={{ fontSize: 11, color: '#595653', marginBottom: 10, lineHeight: 1.5 }}>
-                  Runner contract: receives JSON payload on <code>stdin</code> and env vars
-                  {' '}<code>AGENT_SPACE_TODO_PAYLOAD</code>, <code>AGENT_SPACE_TODO_TEXT</code>,
-                  {' '}<code>AGENT_SPACE_TODO_INDEX</code>, <code>AGENT_SPACE_TODO_TOTAL</code>.
-                </div>
-
-                {todoRunnerError && (
-                  <div
-                    style={{
-                      marginBottom: 10,
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      border: '1px solid rgba(196,80,80,0.4)',
-                      background: 'rgba(196,80,80,0.1)',
-                      color: '#c45050',
-                      fontSize: 12,
-                    }}
-                  >
-                    {todoRunnerError}
-                  </div>
-                )}
-
-                {todoRunnerLoading && (
-                  <div style={{ fontSize: 12, color: '#595653', marginBottom: 10 }}>
-                    Loading todo runs...
-                  </div>
-                )}
-
-                {todoRunnerDrafts.length === 0 && !todoRunnerLoading && (
-                  <div style={{ fontSize: 12, color: '#595653', marginBottom: 10 }}>
-                    No todo runs yet.
-                  </div>
-                )}
-
-                {todoRunnerDrafts.map((job) => {
-                  const busy = todoRunnerBusyId === job.id
-                  const statusColor =
-                    job.lastStatus === 'success'
-                      ? '#548C5A'
-                      : job.lastStatus === 'error'
-                        ? '#c45050'
-                        : job.lastStatus === 'running'
-                          ? '#d4a040'
-                          : '#74747C'
-
-                  return (
-                    <div
-                      key={job.id}
-                      style={{
-                        border: '1px solid rgba(89,86,83,0.25)',
-                        borderRadius: 8,
-                        padding: 10,
-                        marginBottom: 10,
-                        background: 'rgba(14,14,13,0.35)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <input
-                          type="text"
-                          value={job.name}
-                          onChange={(e) => updateTodoRunnerDraft(job.id, { name: e.target.value })}
-                          placeholder="Todo run name"
-                          style={{
-                            flex: 1,
-                            background: 'rgba(89,86,83,0.15)',
-                            border: '1px solid rgba(89,86,83,0.3)',
-                            borderRadius: 6,
-                            padding: '5px 8px',
-                            fontSize: 13,
-                            color: '#9A9692',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                          }}
-                        />
-                        <Toggle
-                          checked={job.enabled}
-                          onChange={(enabled) => updateTodoRunnerDraft(job.id, { enabled })}
-                        />
-                      </div>
-
-                      <Row label="Directory">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <input
-                            type="text"
-                            value={job.workingDirectory}
-                            onChange={(e) => updateTodoRunnerDraft(job.id, { workingDirectory: e.target.value })}
-                            placeholder="/path/to/project"
-                            style={{
-                              width: 220,
-                              background: 'rgba(89,86,83,0.15)',
-                              border: '1px solid rgba(89,86,83,0.3)',
-                              borderRadius: 6,
-                              padding: '5px 8px',
-                              fontSize: 13,
-                              color: '#9A9692',
-                              outline: 'none',
-                              fontFamily: 'inherit',
-                            }}
-                          />
-                          <button
-                            onClick={() => void browseTodoRunnerDirectory(job.id)}
-                            style={{
-                              padding: '5px 10px',
-                              fontSize: 12,
-                              fontWeight: 500,
-                              background: 'rgba(89,86,83,0.15)',
-                              border: '1px solid rgba(89,86,83,0.3)',
-                              borderRadius: 6,
-                              color: '#9A9692',
-                              cursor: 'pointer',
-                              fontFamily: 'inherit',
-                            }}
-                          >
-                            Browse...
-                          </button>
-                        </div>
-                      </Row>
-
-                      <Row label="Runner command">
-                        <input
-                          type="text"
-                          value={job.runnerCommand}
-                          onChange={(e) => updateTodoRunnerDraft(job.id, { runnerCommand: e.target.value })}
-                          placeholder="python3 /path/to/agent_sdk_worker.py"
-                          style={{
-                            width: 320,
-                            background: 'rgba(89,86,83,0.15)',
-                            border: '1px solid rgba(89,86,83,0.3)',
-                            borderRadius: 6,
-                            padding: '5px 8px',
-                            fontSize: 12,
-                            color: '#9A9692',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                          }}
-                        />
-                      </Row>
-
-                      <Row label="YOLO mode">
-                        <Toggle
-                          checked={job.yoloMode}
-                          onChange={(yoloMode) => updateTodoRunnerDraft(job.id, { yoloMode })}
-                        />
-                      </Row>
-
-                      <div style={{ marginTop: 8 }}>
-                        <div style={{ fontSize: 10, color: '#74747C', marginBottom: 4, letterSpacing: 0.8 }}>
-                          GLOBAL PROMPT
-                        </div>
-                        <textarea
-                          value={job.prompt}
-                          onChange={(e) => updateTodoRunnerDraft(job.id, { prompt: e.target.value })}
-                          placeholder="Instructions applied to every todo item run"
-                          rows={3}
-                          style={{
-                            width: '100%',
-                            background: 'rgba(89,86,83,0.15)',
-                            border: '1px solid rgba(89,86,83,0.3)',
-                            borderRadius: 6,
-                            padding: '7px 8px',
-                            fontSize: 12,
-                            color: '#9A9692',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                            resize: 'vertical',
-                            lineHeight: 1.45,
-                          }}
-                        />
-                      </div>
-
-                      <div style={{ marginTop: 8 }}>
-                        <div style={{ fontSize: 10, color: '#74747C', marginBottom: 4, letterSpacing: 0.8 }}>
-                          TODO ITEMS (one per line)
-                        </div>
-                        <textarea
-                          value={job.todoItemsText}
-                          onChange={(e) => updateTodoRunnerDraft(job.id, { todoItemsText: e.target.value })}
-                          placeholder="Todo #1&#10;Todo #2&#10;Todo #3"
-                          rows={8}
-                          style={{
-                            width: '100%',
-                            background: 'rgba(89,86,83,0.15)',
-                            border: '1px solid rgba(89,86,83,0.3)',
-                            borderRadius: 6,
-                            padding: '7px 8px',
-                            fontSize: 12,
-                            color: '#9A9692',
-                            outline: 'none',
-                            fontFamily: 'inherit',
-                            resize: 'vertical',
-                            lineHeight: 1.45,
-                          }}
-                        />
-                      </div>
-
-                      <div style={{ marginTop: 8, fontSize: 11, color: '#74747C', lineHeight: 1.5 }}>
-                        <div>
-                          Status:{' '}
-                          <span style={{ color: statusColor, fontWeight: 600 }}>
-                            {job.isRunning ? 'running' : job.lastStatus}
-                          </span>
-                        </div>
-                        <div>
-                          Progress: {job.completedTodos}/{job.totalTodos} complete
-                          {job.failedTodos > 0 ? `, ${job.failedTodos} failed` : ''}
-                          {job.blockedTodos > 0 ? `, ${job.blockedTodos} blocked` : ''}
-                        </div>
-                        <div>
-                          Current todo: {job.currentTodoIndex != null ? String(job.currentTodoIndex + 1) : 'None'}
-                        </div>
-                        <div>Next todo: {job.nextTodoText ?? 'None'}</div>
-                        <div>
-                          Last run: {formatDateTime(job.lastRunAt)}
-                          {job.lastDurationMs != null ? ` (${formatDuration(job.lastDurationMs)})` : ''}
-                        </div>
-                        {job.lastError && (
-                          <div style={{ color: '#c45050' }}>Last error: {job.lastError}</div>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
-                        {!job.isDraft && (
-                          <>
-                            <button
-                              onClick={() => void startTodoRunnerJob(job)}
-                              disabled={busy}
-                              style={{
-                                padding: '5px 10px',
-                                fontSize: 12,
-                                fontWeight: 500,
-                                background: 'rgba(84,140,90,0.14)',
-                                border: '1px solid rgba(84,140,90,0.35)',
-                                borderRadius: 6,
-                                color: '#7fb887',
-                                cursor: busy ? 'default' : 'pointer',
-                                fontFamily: 'inherit',
-                                opacity: busy ? 0.5 : 1,
-                              }}
-                            >
-                              Start
-                            </button>
-                            <button
-                              onClick={() => void pauseTodoRunnerJob(job)}
-                              disabled={busy}
-                              style={{
-                                padding: '5px 10px',
-                                fontSize: 12,
-                                fontWeight: 500,
-                                background: 'rgba(212,160,64,0.12)',
-                                border: '1px solid rgba(212,160,64,0.35)',
-                                borderRadius: 6,
-                                color: '#d4a040',
-                                cursor: busy ? 'default' : 'pointer',
-                                fontFamily: 'inherit',
-                                opacity: busy ? 0.5 : 1,
-                              }}
-                            >
-                              Pause
-                            </button>
-                            <button
-                              onClick={() => void resetTodoRunnerJob(job)}
-                              disabled={busy}
-                              style={{
-                                padding: '5px 10px',
-                                fontSize: 12,
-                                fontWeight: 500,
-                                background: 'rgba(89,86,83,0.15)',
-                                border: '1px solid rgba(89,86,83,0.3)',
-                                borderRadius: 6,
-                                color: '#9A9692',
-                                cursor: busy ? 'default' : 'pointer',
-                                fontFamily: 'inherit',
-                                opacity: busy ? 0.5 : 1,
-                              }}
-                            >
-                              Reset Progress
-                            </button>
-                          </>
-                        )}
-                        <button
-                          onClick={() => void saveTodoRunnerJob(job)}
-                          disabled={busy}
-                          style={{
-                            padding: '5px 10px',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            background: 'rgba(89,86,83,0.15)',
-                            border: '1px solid rgba(89,86,83,0.3)',
-                            borderRadius: 6,
-                            color: '#9A9692',
-                            cursor: busy ? 'default' : 'pointer',
-                            fontFamily: 'inherit',
-                            opacity: busy ? 0.5 : 1,
-                          }}
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => void removeTodoRunnerJob(job)}
-                          disabled={busy}
-                          style={{
-                            padding: '5px 10px',
-                            fontSize: 12,
-                            fontWeight: 500,
-                            background: 'rgba(196,80,80,0.12)',
-                            border: '1px solid rgba(196,80,80,0.32)',
-                            borderRadius: 6,
-                            color: '#c45050',
-                            cursor: busy ? 'default' : 'pointer',
-                            fontFamily: 'inherit',
-                            opacity: busy ? 0.5 : 1,
-                          }}
-                        >
-                          {job.isDraft ? 'Discard' : 'Delete'}
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-
-                <button
-                  onClick={addTodoRunnerDraft}
-                  style={{
-                    marginTop: 4,
-                    padding: '5px 12px',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    background: 'rgba(89,86,83,0.15)',
-                    border: '1px solid rgba(89,86,83,0.3)',
-                    borderRadius: 6,
-                    color: '#9A9692',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  + Add Todo Run
-                </button>
-              </Section>
-            </>
+            <TodoRunnerTab
+              todoRunnerError={todoRunnerError}
+              todoRunnerLoading={todoRunnerLoading}
+              todoRunnerBusyId={todoRunnerBusyId}
+              todoRunnerDrafts={todoRunnerDrafts}
+              updateTodoRunnerDraft={updateTodoRunnerDraft}
+              browseTodoRunnerDirectory={browseTodoRunnerDirectory}
+              startTodoRunnerJob={startTodoRunnerJob}
+              pauseTodoRunnerJob={pauseTodoRunnerJob}
+              resetTodoRunnerJob={resetTodoRunnerJob}
+              saveTodoRunnerJob={saveTodoRunnerJob}
+              removeTodoRunnerJob={removeTodoRunnerJob}
+              addTodoRunnerDraft={addTodoRunnerDraft}
+            />
           )}
 
           {activeTab === 'subscription' && (
