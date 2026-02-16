@@ -241,6 +241,9 @@ export function TodoRunnerTab({
                 Current todo: {job.currentTodoIndex != null ? String(job.currentTodoIndex + 1) : 'None'}
               </div>
               <div>Next todo: {job.nextTodoText ?? 'None'}</div>
+              {job.nextRetryAt != null && (
+                <div>Next retry: {formatDateTime(job.nextRetryAt)}</div>
+              )}
               <div>
                 Last run: {formatDateTime(job.lastRunAt)}
                 {job.lastDurationMs != null ? ` (${formatDuration(job.lastDurationMs)})` : ''}
