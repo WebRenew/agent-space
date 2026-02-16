@@ -332,6 +332,8 @@ export function SettingsPanel() {
       lastError: null,
       lastDurationMs: null,
       lastRunTrigger: null,
+      lastScheduledMinuteKey: null,
+      lastBackfillMinutes: null,
       isDraft: true,
     }
     setScheduleDrafts((prev) => [...prev, task])

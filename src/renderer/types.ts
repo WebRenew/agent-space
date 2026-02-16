@@ -245,6 +245,8 @@ export interface SchedulerTask {
   lastError: string | null
   lastDurationMs: number | null
   lastRunTrigger: SchedulerRunTrigger | null
+  lastScheduledMinuteKey: string | null
+  lastBackfillMinutes: number | null
 }
 
 export interface TodoRunnerJobInput {
