@@ -89,6 +89,7 @@ const TODO_RUNNER_DIR = path.join(os.homedir(), '.agent-observer')
 const TODO_RUNNER_FILE = path.join(TODO_RUNNER_DIR, 'todo-runner.json')
 const TODO_RUNNER_TICK_MS = 5_000
 const TODO_RUNNER_DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000
+const NODE_MAX_TIMEOUT_MS = 2_147_483_647
 const TODO_RUNNER_FORCE_KILL_TIMEOUT_MS = 10_000
 const TODO_MAX_ATTEMPTS = 3
 
@@ -125,6 +126,14 @@ function resolveTodoRunnerMaxRuntimeMs(): number {
       fallbackMs: TODO_RUNNER_DEFAULT_MAX_RUNTIME_MS,
     }, 'warn')
     return TODO_RUNNER_DEFAULT_MAX_RUNTIME_MS
+  }
+  if (parsed > NODE_MAX_TIMEOUT_MS) {
+    logMainEvent('todo_runner.invalid_timeout_config', {
+      rawValue: raw,
+      fallbackMs: NODE_MAX_TIMEOUT_MS,
+      reason: 'exceeds_node_timeout_limit',
+    }, 'warn')
+    return NODE_MAX_TIMEOUT_MS
   }
   return parsed
 }
