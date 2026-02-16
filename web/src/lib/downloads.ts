@@ -3,8 +3,11 @@ import { SITE_REPO_URL, SITE_RELEASES_URL } from "@/lib/site";
 export const AGENT_SPACE_REPO_URL = SITE_REPO_URL;
 export const AGENT_SPACE_RELEASES_URL = SITE_RELEASES_URL;
 export const AGENT_SPACE_INSTALLER_URL = "/download";
-export const AGENT_SPACE_RELEASES_API_URL =
-  "https://api.github.com/repos/webrenew/agent-space/releases/latest";
+const AGENT_SPACE_REPO_PATH = new URL(SITE_REPO_URL).pathname.replace(
+  /^\/|\/$/g,
+  ""
+);
+export const AGENT_SPACE_RELEASES_API_URL = `https://api.github.com/repos/${AGENT_SPACE_REPO_PATH}/releases/latest`;
 
 export interface GitHubReleaseAsset {
   name: string;
