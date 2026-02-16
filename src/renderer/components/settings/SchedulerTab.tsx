@@ -221,6 +221,14 @@ export function SchedulerTab({
                 Last run: {formatDateTime(task.lastRunAt)}
                 {task.lastDurationMs != null ? ` (${formatDuration(task.lastDurationMs)})` : ''}
               </div>
+              {task.lastScheduledMinuteKey && (
+                <div>
+                  Last scheduled minute: {task.lastScheduledMinuteKey}
+                  {task.lastBackfillMinutes != null && task.lastBackfillMinutes > 0
+                    ? ` (backfill ${task.lastBackfillMinutes}m)`
+                    : ''}
+                </div>
+              )}
               {task.lastError && (
                 <div style={{ color: '#c45050' }}>Last error: {task.lastError}</div>
               )}

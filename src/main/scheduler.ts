@@ -17,6 +17,12 @@ import {
 type SchedulerRunStatus = 'idle' | 'running' | 'success' | 'error'
 type SchedulerRunTrigger = 'cron' | 'manual'
 
+interface SchedulerRunContext {
+  scheduledForMinuteKey: string | null
+  scheduledForTimestamp: string | null
+  backfillMinutes: number | null
+}
+
 interface SchedulerTask {
   id: string
   name: string
@@ -46,6 +52,8 @@ interface SchedulerTaskRuntime {
   lastDurationMs: number | null
   lastRunTrigger: SchedulerRunTrigger | null
   lastRunMinuteKey: string | null
+  lastScheduledMinuteKey: string | null
+  lastBackfillMinutes: number | null
 }
 
 interface SchedulerTaskWithRuntime extends SchedulerTask {
@@ -56,6 +64,13 @@ interface SchedulerTaskWithRuntime extends SchedulerTask {
   lastError: string | null
   lastDurationMs: number | null
   lastRunTrigger: SchedulerRunTrigger | null
+  lastScheduledMinuteKey: string | null
+  lastBackfillMinutes: number | null
+}
+
+interface PendingSchedulerCronRun {
+  minuteTimestampMs: number
+  minuteKey: string
 }
 
 interface ParsedCronField {
@@ -75,6 +90,8 @@ const SCHEDULER_DIR = path.join(os.homedir(), '.agent-observer')
 const SCHEDULER_FILE = path.join(SCHEDULER_DIR, 'schedules.json')
 const SCHEDULER_MAX_SCAN_MINUTES = 366 * 24 * 60
 const SCHEDULER_TICK_MS = 10_000
+const SCHEDULER_BACKFILL_DEFAULT_WINDOW_MINUTES = 15
+const SCHEDULER_BACKFILL_MAX_WINDOW_MINUTES = 24 * 60
 const SCHEDULER_RUN_DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000
 const SCHEDULER_FORCE_KILL_TIMEOUT_MS = 10_000
 const INVALID_CRON_ERROR_PREFIX = 'Invalid cron expression:'
@@ -83,10 +100,13 @@ let handlersRegistered = false
 let schedulerTimer: NodeJS.Timeout | null = null
 let schedulerTickInFlight = false
 let schedulerTickRequested = false
+let lastSuccessfulSchedulerTickAt: number | null = null
 let tasksCache: SchedulerTask[] = []
 
 const runtimeByTaskId = new Map<string, SchedulerTaskRuntime>()
 const runningProcessByTaskId = new Map<string, ChildProcess>()
+const pendingCronRunsByTaskId = new Map<string, PendingSchedulerCronRun[]>()
+const cronDispatchInFlightByTaskId = new Set<string>()
 const cronParseCache = new Map<string, ParsedCron>()
 const loadValidationErrorsByTaskId = new Map<string, string>()
 const forceKillTimerByTaskId = new Map<string, NodeJS.Timeout>()
@@ -106,6 +126,30 @@ function resolveSchedulerRunMaxRuntimeMs(): number {
       }, 'warn')
     },
   })
+}
+
+function resolveSchedulerBackfillWindowMinutes(): number {
+  const rawValue = process.env.AGENT_SPACE_SCHEDULER_BACKFILL_WINDOW_MINUTES
+  if (!rawValue) return SCHEDULER_BACKFILL_DEFAULT_WINDOW_MINUTES
+
+  const parsed = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    logMainEvent('scheduler.tick.invalid_backfill_window_config', {
+      rawValue,
+      fallbackMinutes: SCHEDULER_BACKFILL_DEFAULT_WINDOW_MINUTES,
+    }, 'warn')
+    return SCHEDULER_BACKFILL_DEFAULT_WINDOW_MINUTES
+  }
+
+  if (parsed > SCHEDULER_BACKFILL_MAX_WINDOW_MINUTES) {
+    logMainEvent('scheduler.tick.clamped_backfill_window_config', {
+      rawValue,
+      parsed,
+      clampedMinutes: SCHEDULER_BACKFILL_MAX_WINDOW_MINUTES,
+    }, 'warn')
+    return SCHEDULER_BACKFILL_MAX_WINDOW_MINUTES
+  }
+  return parsed
 }
 
 function clearSchedulerForceKillTimer(taskId: string): void {
@@ -135,6 +179,8 @@ function createRuntime(): SchedulerTaskRuntime {
     lastDurationMs: null,
     lastRunTrigger: null,
     lastRunMinuteKey: null,
+    lastScheduledMinuteKey: null,
+    lastBackfillMinutes: null,
   }
 }
 
@@ -196,6 +242,10 @@ function assertValidTaskInput(input: SchedulerTaskInput): void {
 
 function minuteKey(date: Date): string {
   return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}-${date.getMinutes()}`
+}
+
+function floorToMinuteTimestamp(timestampMs: number): number {
+  return Math.floor(timestampMs / 60_000) * 60_000
 }
 
 function parseCronFieldPart(part: string, min: number, max: number, mapDow = false): number[] {
@@ -417,11 +467,15 @@ function loadTasksCache(): void {
       runtime.lastError = `${validationError} (task disabled)`
       runtime.lastDurationMs = null
       runtime.lastRunTrigger = null
+      runtime.lastScheduledMinuteKey = null
+      runtime.lastBackfillMinutes = null
     } else if (runtime.lastError?.startsWith(INVALID_CRON_ERROR_PREFIX)) {
       runtime.lastStatus = 'idle'
       runtime.lastError = null
       runtime.lastDurationMs = null
       runtime.lastRunTrigger = null
+      runtime.lastScheduledMinuteKey = null
+      runtime.lastBackfillMinutes = null
     }
     runtimeByTaskId.set(task.id, runtime)
   }
@@ -443,6 +497,8 @@ function toTaskWithRuntime(task: SchedulerTask): SchedulerTaskWithRuntime {
     lastError: runtime.lastError,
     lastDurationMs: runtime.lastDurationMs,
     lastRunTrigger: runtime.lastRunTrigger,
+    lastScheduledMinuteKey: runtime.lastScheduledMinuteKey,
+    lastBackfillMinutes: runtime.lastBackfillMinutes,
   }
 }
 
@@ -476,6 +532,9 @@ function upsertTask(input: SchedulerTaskInput): SchedulerTaskWithRuntime {
       updatedAt: now,
     }
     tasksCache[existingIndex] = updated
+    if (!updated.enabled || updated.cron !== previous.cron) {
+      pendingCronRunsByTaskId.delete(updated.id)
+    }
     loadValidationErrorsByTaskId.delete(updated.id)
     writeTasksToDisk(tasksCache)
     const runtime = runtimeByTaskId.get(updated.id) ?? createRuntime()
@@ -484,6 +543,8 @@ function upsertTask(input: SchedulerTaskInput): SchedulerTaskWithRuntime {
       runtime.lastError = null
       runtime.lastDurationMs = null
       runtime.lastRunTrigger = null
+      runtime.lastScheduledMinuteKey = null
+      runtime.lastBackfillMinutes = null
     }
     runtimeByTaskId.set(updated.id, runtime)
     broadcastSchedulerUpdate()
@@ -514,6 +575,8 @@ function deleteTask(taskId: string): void {
 
   tasksCache = tasksCache.filter((task) => task.id !== taskId)
   runtimeByTaskId.delete(taskId)
+  pendingCronRunsByTaskId.delete(taskId)
+  cronDispatchInFlightByTaskId.delete(taskId)
   loadValidationErrorsByTaskId.delete(taskId)
   cronParseCache.clear()
 
@@ -532,8 +595,26 @@ function deleteTask(taskId: string): void {
   broadcastSchedulerUpdate()
 }
 
-async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promise<void> {
-  if (runningProcessByTaskId.has(task.id)) return
+async function runTask(
+  task: SchedulerTask,
+  trigger: SchedulerRunTrigger,
+  runContext: SchedulerRunContext = {
+    scheduledForMinuteKey: null,
+    scheduledForTimestamp: null,
+    backfillMinutes: null,
+  }
+): Promise<boolean> {
+  if (runningProcessByTaskId.has(task.id)) return false
+
+  const effectiveScheduledMinuteKey = trigger === 'cron'
+    ? (runContext.scheduledForMinuteKey ?? minuteKey(new Date()))
+    : null
+  const effectiveScheduledTimestamp = trigger === 'cron'
+    ? (runContext.scheduledForTimestamp ?? new Date().toISOString())
+    : null
+  const effectiveBackfillMinutes = trigger === 'cron'
+    ? Math.max(0, runContext.backfillMinutes ?? 0)
+    : null
 
   let cwdStat: fs.Stats
   try {
@@ -545,9 +626,11 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
     runtime.lastError = `Directory not found: ${task.workingDirectory}`
     runtime.lastDurationMs = null
     runtime.lastRunTrigger = trigger
+    runtime.lastScheduledMinuteKey = effectiveScheduledMinuteKey
+    runtime.lastBackfillMinutes = effectiveBackfillMinutes
     runtimeByTaskId.set(task.id, runtime)
     broadcastSchedulerUpdate()
-    return
+    return true
   }
   if (!cwdStat.isDirectory()) {
     const runtime = runtimeByTaskId.get(task.id) ?? createRuntime()
@@ -556,9 +639,11 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
     runtime.lastError = `Not a directory: ${task.workingDirectory}`
     runtime.lastDurationMs = null
     runtime.lastRunTrigger = trigger
+    runtime.lastScheduledMinuteKey = effectiveScheduledMinuteKey
+    runtime.lastBackfillMinutes = effectiveBackfillMinutes
     runtimeByTaskId.set(task.id, runtime)
     broadcastSchedulerUpdate()
-    return
+    return true
   }
 
   const runtime = runtimeByTaskId.get(task.id) ?? createRuntime()
@@ -567,14 +652,23 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
   runtime.lastError = null
   runtime.lastDurationMs = null
   runtime.lastRunTrigger = trigger
+  if (effectiveScheduledMinuteKey) {
+    runtime.lastRunMinuteKey = effectiveScheduledMinuteKey
+  }
+  runtime.lastScheduledMinuteKey = effectiveScheduledMinuteKey
+  runtime.lastBackfillMinutes = effectiveBackfillMinutes
   runtimeByTaskId.set(task.id, runtime)
   broadcastSchedulerUpdate()
 
+  const startedAtIso = new Date().toISOString()
   const runPrompt = [
     `[Scheduled task run]`,
     `Task: ${task.name}`,
     `Trigger: ${trigger}`,
-    `Timestamp: ${new Date().toISOString()}`,
+    `Timestamp: ${startedAtIso}`,
+    ...(effectiveScheduledTimestamp ? [`Scheduled timestamp: ${effectiveScheduledTimestamp}`] : []),
+    ...(effectiveScheduledMinuteKey ? [`Scheduled minute key: ${effectiveScheduledMinuteKey}`] : []),
+    ...(effectiveBackfillMinutes != null ? [`Backfill minutes: ${effectiveBackfillMinutes}`] : []),
     '',
     task.prompt,
   ].join('\n')
@@ -607,6 +701,9 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
     taskId: task.id,
     taskName: task.name,
     trigger,
+    scheduledMinuteKey: effectiveScheduledMinuteKey,
+    scheduledTimestamp: effectiveScheduledTimestamp,
+    backfillMinutes: effectiveBackfillMinutes,
     cwd: task.workingDirectory,
     yoloMode: task.yoloMode,
     profileId: profileResolution.profile.id,
@@ -651,6 +748,9 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
         taskId: task.id,
         taskName: task.name,
         trigger,
+        scheduledMinuteKey: effectiveScheduledMinuteKey,
+        scheduledTimestamp: effectiveScheduledTimestamp,
+        backfillMinutes: effectiveBackfillMinutes,
         maxRuntimeMs,
       }, 'warn')
     },
@@ -666,6 +766,9 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
         taskId: task.id,
         taskName: task.name,
         trigger,
+        scheduledMinuteKey: effectiveScheduledMinuteKey,
+        scheduledTimestamp: effectiveScheduledTimestamp,
+        backfillMinutes: effectiveBackfillMinutes,
         reason: 'timeout',
       }, 'warn')
     },
@@ -690,12 +793,15 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
       taskId: task.id,
       taskName: task.name,
       trigger,
+      scheduledMinuteKey: effectiveScheduledMinuteKey,
+      scheduledTimestamp: effectiveScheduledTimestamp,
+      backfillMinutes: effectiveBackfillMinutes,
       durationMs: duration,
       code: processResult.exitCode,
       error: processResult.spawnError?.message ?? processResult.resultError ?? null,
     })
     broadcastSchedulerUpdate()
-    return
+    return true
   }
 
   const finalRuntime = runtimeByTaskId.get(task.id) ?? createRuntime()
@@ -710,9 +816,12 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
       taskId: task.id,
       taskName: task.name,
       trigger,
+      scheduledMinuteKey: effectiveScheduledMinuteKey,
+      scheduledTimestamp: effectiveScheduledTimestamp,
+      backfillMinutes: effectiveBackfillMinutes,
     })
     broadcastSchedulerUpdate()
-    return
+    return true
   }
 
   if (processResult.exitCode === 0 && !processResult.resultError) {
@@ -722,6 +831,9 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
       taskId: task.id,
       taskName: task.name,
       trigger,
+      scheduledMinuteKey: effectiveScheduledMinuteKey,
+      scheduledTimestamp: effectiveScheduledTimestamp,
+      backfillMinutes: effectiveBackfillMinutes,
       durationMs: duration,
     })
   } else {
@@ -732,6 +844,9 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
       taskId: task.id,
       taskName: task.name,
       trigger,
+      scheduledMinuteKey: effectiveScheduledMinuteKey,
+      scheduledTimestamp: effectiveScheduledTimestamp,
+      backfillMinutes: effectiveBackfillMinutes,
       durationMs: duration,
       code: processResult.exitCode,
       error: finalRuntime.lastError,
@@ -740,6 +855,7 @@ async function runTask(task: SchedulerTask, trigger: SchedulerRunTrigger): Promi
 
   runtimeByTaskId.set(task.id, finalRuntime)
   broadcastSchedulerUpdate()
+  return true
 }
 
 async function runTaskById(taskId: string, trigger: SchedulerRunTrigger): Promise<SchedulerTaskWithRuntime> {
@@ -756,6 +872,140 @@ async function runTaskById(taskId: string, trigger: SchedulerRunTrigger): Promis
   return toTaskWithRuntime(latestTask)
 }
 
+function resolveSchedulerTickWindow(now: Date): {
+  minuteTimestampsMs: number[]
+  backfillWindowMinutes: number
+  clamped: boolean
+  gapMinutes: number
+} {
+  const nowMinuteTimestampMs = floorToMinuteTimestamp(now.getTime())
+  const backfillWindowMinutes = resolveSchedulerBackfillWindowMinutes()
+
+  if (lastSuccessfulSchedulerTickAt == null) {
+    return {
+      minuteTimestampsMs: [nowMinuteTimestampMs],
+      backfillWindowMinutes,
+      clamped: false,
+      gapMinutes: 0,
+    }
+  }
+
+  const previousMinuteTimestampMs = floorToMinuteTimestamp(lastSuccessfulSchedulerTickAt)
+  const gapMinutes = Math.max(0, Math.floor((nowMinuteTimestampMs - previousMinuteTimestampMs) / 60_000))
+  let startMinuteTimestampMs = previousMinuteTimestampMs + 60_000
+  const earliestAllowedMinuteTimestampMs = nowMinuteTimestampMs - (backfillWindowMinutes * 60_000)
+  let clamped = false
+  if (startMinuteTimestampMs < earliestAllowedMinuteTimestampMs) {
+    startMinuteTimestampMs = earliestAllowedMinuteTimestampMs
+    clamped = true
+  }
+
+  if (startMinuteTimestampMs > nowMinuteTimestampMs) {
+    return {
+      minuteTimestampsMs: [],
+      backfillWindowMinutes,
+      clamped,
+      gapMinutes,
+    }
+  }
+
+  const minuteTimestampsMs: number[] = []
+  for (let cursor = startMinuteTimestampMs; cursor <= nowMinuteTimestampMs; cursor += 60_000) {
+    minuteTimestampsMs.push(cursor)
+  }
+  return {
+    minuteTimestampsMs,
+    backfillWindowMinutes,
+    clamped,
+    gapMinutes,
+  }
+}
+
+function enqueuePendingCronRun(task: SchedulerTask, minuteTimestampMs: number, nowMinuteTimestampMs: number): boolean {
+  const runMinuteKey = minuteKey(new Date(minuteTimestampMs))
+  const runtime = runtimeByTaskId.get(task.id) ?? createRuntime()
+  if (runtime.lastRunMinuteKey === runMinuteKey) return false
+
+  const pendingRuns = pendingCronRunsByTaskId.get(task.id) ?? []
+  if (pendingRuns.some((pending) => pending.minuteKey === runMinuteKey)) {
+    return false
+  }
+
+  pendingRuns.push({
+    minuteTimestampMs,
+    minuteKey: runMinuteKey,
+  })
+  pendingRuns.sort((a, b) => a.minuteTimestampMs - b.minuteTimestampMs)
+  pendingCronRunsByTaskId.set(task.id, pendingRuns)
+
+  const backfillMinutes = Math.max(0, Math.floor((nowMinuteTimestampMs - minuteTimestampMs) / 60_000))
+  if (backfillMinutes > 0) {
+    logMainEvent('scheduler.tick.backfill_queued', {
+      taskId: task.id,
+      taskName: task.name,
+      minuteKey: runMinuteKey,
+      backfillMinutes,
+      queuedRuns: pendingRuns.length,
+    })
+  }
+  return true
+}
+
+function dispatchPendingCronRun(taskId: string): void {
+  if (cronDispatchInFlightByTaskId.has(taskId)) return
+  if (runningProcessByTaskId.has(taskId)) return
+
+  const pendingRuns = pendingCronRunsByTaskId.get(taskId)
+  if (!pendingRuns || pendingRuns.length === 0) {
+    pendingCronRunsByTaskId.delete(taskId)
+    return
+  }
+
+  const task = tasksCache.find((entry) => entry.id === taskId)
+  if (!task || !task.enabled) {
+    pendingCronRunsByTaskId.delete(taskId)
+    return
+  }
+
+  const nextRun = pendingRuns.shift()
+  if (!nextRun) {
+    pendingCronRunsByTaskId.delete(taskId)
+    return
+  }
+  if (pendingRuns.length === 0) {
+    pendingCronRunsByTaskId.delete(taskId)
+  }
+
+  const nowMinuteTimestampMs = floorToMinuteTimestamp(Date.now())
+  const backfillMinutes = Math.max(0, Math.floor((nowMinuteTimestampMs - nextRun.minuteTimestampMs) / 60_000))
+  const runContext: SchedulerRunContext = {
+    scheduledForMinuteKey: nextRun.minuteKey,
+    scheduledForTimestamp: new Date(nextRun.minuteTimestampMs).toISOString(),
+    backfillMinutes,
+  }
+
+  cronDispatchInFlightByTaskId.add(taskId)
+  void runTask(task, 'cron', runContext).then((started) => {
+    if (!started) {
+      const queue = pendingCronRunsByTaskId.get(taskId) ?? []
+      queue.unshift(nextRun)
+      pendingCronRunsByTaskId.set(taskId, queue)
+    }
+  }).catch((err) => {
+    const queue = pendingCronRunsByTaskId.get(taskId) ?? []
+    queue.unshift(nextRun)
+    pendingCronRunsByTaskId.set(taskId, queue)
+    logMainError('scheduler.tick.run_task_failed', err, {
+      taskId: task.id,
+      taskName: task.name,
+      minuteKey: nextRun.minuteKey,
+    })
+  }).finally(() => {
+    cronDispatchInFlightByTaskId.delete(taskId)
+    dispatchPendingCronRun(taskId)
+  })
+}
+
 async function schedulerTick(): Promise<void> {
   if (schedulerTickInFlight) {
     if (!schedulerTickRequested) {
@@ -767,32 +1017,61 @@ async function schedulerTick(): Promise<void> {
   schedulerTickInFlight = true
 
   const now = new Date()
-  const key = minuteKey(now)
+  const nowMinuteTimestampMs = floorToMinuteTimestamp(now.getTime())
+  const tickWindow = resolveSchedulerTickWindow(now)
   try {
-    const dueTasks: SchedulerTask[] = []
-    for (const task of tasksCache) {
-      if (!task.enabled) continue
-      if (runningProcessByTaskId.has(task.id)) continue
+    let queuedRunCount = 0
+    let queuedBackfillRunCount = 0
+    const tasksWithNewRuns = new Set<string>()
 
-      const parsed = getParsedCron(task.cron)
-      if (!parsed) continue
-      if (!matchesCronDate(parsed, now)) continue
+    for (const minuteTimestampMs of tickWindow.minuteTimestampsMs) {
+      const minuteDate = new Date(minuteTimestampMs)
+      for (const task of tasksCache) {
+        if (!task.enabled) continue
 
-      const runtime = runtimeByTaskId.get(task.id) ?? createRuntime()
-      if (runtime.lastRunMinuteKey === key) continue
-      runtime.lastRunMinuteKey = key
-      runtimeByTaskId.set(task.id, runtime)
-      dueTasks.push(task)
+        const parsed = getParsedCron(task.cron)
+        if (!parsed) continue
+        if (!matchesCronDate(parsed, minuteDate)) continue
+
+        if (enqueuePendingCronRun(task, minuteTimestampMs, nowMinuteTimestampMs)) {
+          queuedRunCount += 1
+          if (minuteTimestampMs < nowMinuteTimestampMs) {
+            queuedBackfillRunCount += 1
+          }
+          tasksWithNewRuns.add(task.id)
+        }
+      }
     }
 
-    for (const task of dueTasks) {
-      void runTask(task, 'cron').catch((err) => {
-        logMainError('scheduler.tick.run_task_failed', err, {
-          taskId: task.id,
-          taskName: task.name,
-        })
+    const taskIdsToDispatch = new Set<string>([
+      ...tasksWithNewRuns,
+      ...pendingCronRunsByTaskId.keys(),
+    ])
+    for (const taskId of taskIdsToDispatch) {
+      dispatchPendingCronRun(taskId)
+    }
+
+    if (tickWindow.clamped) {
+      logMainEvent('scheduler.tick.backfill_clamped', {
+        backfillWindowMinutes: tickWindow.backfillWindowMinutes,
+        gapMinutes: tickWindow.gapMinutes,
+        nowMinuteKey: minuteKey(new Date(nowMinuteTimestampMs)),
+      }, 'warn')
+    }
+
+    if (queuedRunCount > 0 || tickWindow.clamped) {
+      const firstWindowMinute = tickWindow.minuteTimestampsMs[0]
+      const lastWindowMinute = tickWindow.minuteTimestampsMs[tickWindow.minuteTimestampsMs.length - 1]
+      logMainEvent('scheduler.tick.window_scanned', {
+        scannedMinutes: tickWindow.minuteTimestampsMs.length,
+        windowStartMinuteKey: typeof firstWindowMinute === 'number' ? minuteKey(new Date(firstWindowMinute)) : null,
+        windowEndMinuteKey: typeof lastWindowMinute === 'number' ? minuteKey(new Date(lastWindowMinute)) : null,
+        queuedRunCount,
+        queuedBackfillRunCount,
+        pendingTaskCount: pendingCronRunsByTaskId.size,
       })
     }
+    lastSuccessfulSchedulerTickAt = now.getTime()
   } finally {
     schedulerTickInFlight = false
     if (schedulerTickRequested) {
@@ -852,6 +1131,9 @@ export function cleanupScheduler(): void {
   }
   schedulerTickRequested = false
   schedulerTickInFlight = false
+  lastSuccessfulSchedulerTickAt = null
+  pendingCronRunsByTaskId.clear()
+  cronDispatchInFlightByTaskId.clear()
   for (const [taskId, proc] of runningProcessByTaskId) {
     try {
       proc.kill('SIGTERM')
