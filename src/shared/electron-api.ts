@@ -166,6 +166,14 @@ export interface ChatMemoryWrite {
   workspacePath: string
 }
 
+export interface SchedulerDeleteResult {
+  taskId: string
+  wasRunning: boolean
+  stopped: boolean
+  forced: boolean
+  timedOut: boolean
+}
+
 export interface ElectronAPI {
   versions: {
     node: string
@@ -248,7 +256,7 @@ export interface ElectronAPI {
   scheduler: {
     list: () => Promise<SchedulerTask[]>
     upsert: (task: SchedulerTaskInput) => Promise<SchedulerTask>
-    delete: (taskId: string) => Promise<void>
+    delete: (taskId: string) => Promise<SchedulerDeleteResult>
     runNow: (taskId: string) => Promise<SchedulerTask>
     debugRuntimeSize: () => Promise<number>
     onUpdated: (callback: () => void) => Unsubscribe
