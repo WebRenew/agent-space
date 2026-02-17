@@ -110,21 +110,24 @@
     "dmg": {
       "title": "Agent Observer",
       "icon": "resources/icon.icns",
+      "backgroundColor": "#16181d",
+      "iconSize": 140,
+      "iconTextSize": 18,
       "contents": [
         {
-          "x": 130,
-          "y": 220
+          "x": 180,
+          "y": 210
         },
         {
-          "x": 410,
-          "y": 220,
+          "x": 460,
+          "y": 210,
           "type": "link",
           "path": "/Applications"
         }
       ],
       "window": {
-        "width": 540,
-        "height": 380
+        "width": 660,
+        "height": 430
       }
     },
     "directories": {
