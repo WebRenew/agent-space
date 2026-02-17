@@ -321,7 +321,13 @@ export function ContentSection() {
           >
             <li>Use the website installer link to download the latest `.dmg`.</li>
             <li>Open the DMG, then drag Agent Observer into `Applications`.</li>
-            <li>Launch Agent Observer from Applications and approve requested permissions.</li>
+            <li>
+              Right-click Agent Observer in Applications and choose{" "}
+              <strong>Open</strong>, then click <strong>Open</strong> in the
+              dialog. macOS requires this extra step for community-distributed
+              apps.
+            </li>
+            <li>Approve any requested permissions on first launch.</li>
           </ol>
         </div>
       </div>
