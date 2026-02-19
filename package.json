@@ -1,6 +1,6 @@
 {
   "name": "agent-observer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Agent Office — 3D observability for AI agents",
   "main": "./out/main/index.js",
   "scripts": {
@@ -39,7 +39,10 @@
       "electron",
       "esbuild",
       "node-pty"
-    ]
+    ],
+    "overrides": {
+      "tar": ">=7.5.8"
+    }
   },
   "dependencies": {
     "@memories.sh/cli": "^0.7.6",
@@ -90,6 +93,7 @@
     "productName": "Agent Observer",
     "artifactName": "${name}-${version}-${arch}.${ext}",
     "mac": {
+      "identity": "-",
       "category": "public.app-category.developer-tools",
       "icon": "resources/icon.icns",
       "target": [
