@@ -66,13 +66,15 @@ export function AgentCharacter({
     group.current.position.y = 0
 
     const head = group.current.children[0] // head group
-    const leftArm = group.current.children[3]
-    const rightArm = group.current.children[4]
+    const leftArm = group.current.children[4]
+    const rightArm = group.current.children[5]
     if (!head || !leftArm || !rightArm) return
 
     // Reset
+    group.current.rotation.y = 0
     head.rotation.x = 0
     head.rotation.y = 0
+    head.rotation.z = 0
     leftArm.rotation.x = 0
     rightArm.rotation.x = 0
 
