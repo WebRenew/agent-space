@@ -300,13 +300,13 @@ export function ContentSection() {
             >
               Download for macOS (Apple Silicon) →
             </a>
-            <a
-              href="#install-checklist"
+            <Link
+              href="/docs"
               className="nav-item"
               style={{ color: "#d4a040", fontSize: 12, fontWeight: 600 }}
             >
-              View install checklist ↓
-            </a>
+              View install docs →
+            </Link>
           </div>
 
           <ol

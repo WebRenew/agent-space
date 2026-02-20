@@ -133,6 +133,14 @@ const STAR_COUNT = 300;
 const STAR_RADIUS = 80;
 const _starDummy = new Object3D();
 
+// Cloud constants
+const CLOUD_COUNT = 12;
+const CLOUD_ORBIT_RADIUS = 50;
+const CLOUD_Y_MIN = 12;
+const CLOUD_Y_MAX = 20;
+const _cloudDummy = new Object3D();
+const _cloudColor = new Color();
+
 const SCREEN_COLORS: Record<AgentStatus, { color: string; emissive: string; intensity: number }> = {
   idle: { color: "#1a1a2e", emissive: "#334155", intensity: 0.1 },
   thinking: { color: "#facc15", emissive: "#facc15", intensity: 0.4 },
@@ -822,6 +830,104 @@ function StarField({ daylightRef }: { daylightRef: React.RefObject<number> }) {
   );
 }
 
+interface CloudData {
+  angle: number;
+  y: number;
+  speed: number;
+  scaleX: number;
+  scaleY: number;
+  scaleZ: number;
+  puffCount: number;
+  puffOffsets: [number, number, number][];
+}
+
+function CloudField({ daylightRef }: { daylightRef: React.RefObject<number> }) {
+  const groupRef = useRef<InstancedMesh>(null);
+
+  const clouds = useMemo<CloudData[]>(() => {
+    return Array.from({ length: CLOUD_COUNT }, (_, i) => {
+      const puffCount = 3 + Math.floor(Math.random() * 3);
+      return {
+        angle: (i / CLOUD_COUNT) * Math.PI * 2 + Math.random() * 0.4,
+        y: CLOUD_Y_MIN + Math.random() * (CLOUD_Y_MAX - CLOUD_Y_MIN),
+        speed: 0.008 + Math.random() * 0.012,
+        scaleX: 2.5 + Math.random() * 2.5,
+        scaleY: 0.6 + Math.random() * 0.4,
+        scaleZ: 1.5 + Math.random() * 1.5,
+        puffCount,
+        puffOffsets: Array.from({ length: puffCount }, () => [
+          (Math.random() - 0.5) * 1.8,
+          (Math.random() - 0.5) * 0.3,
+          (Math.random() - 0.5) * 0.8,
+        ]) as [number, number, number][],
+      };
+    });
+  }, []);
+
+  const totalPuffs = useMemo(() => clouds.reduce((sum, c) => sum + c.puffCount, 0), [clouds]);
+
+  useFrame(({ clock }) => {
+    const mesh = groupRef.current;
+    if (!mesh) return;
+
+    const dl = daylightRef.current ?? 1;
+    const visibility = MathUtils.clamp(dl * 1.5, 0, 1);
+    if (visibility <= 0.01) {
+      mesh.visible = false;
+      return;
+    }
+    mesh.visible = true;
+
+    const t = clock.getElapsedTime();
+    let idx = 0;
+
+    _cloudColor.setRGB(
+      MathUtils.lerp(0.15, 1, dl),
+      MathUtils.lerp(0.17, 1, dl),
+      MathUtils.lerp(0.25, 1, dl)
+    );
+
+    for (const cloud of clouds) {
+      const a = cloud.angle + t * cloud.speed;
+      const cx = Math.cos(a) * CLOUD_ORBIT_RADIUS;
+      const cz = Math.sin(a) * CLOUD_ORBIT_RADIUS * 0.5 - 10;
+
+      for (let p = 0; p < cloud.puffCount; p++) {
+        const off = cloud.puffOffsets[p];
+        _cloudDummy.position.set(
+          cx + off[0] * cloud.scaleX * 0.5,
+          cloud.y + off[1],
+          cz + off[2] * cloud.scaleZ * 0.5
+        );
+        _cloudDummy.scale.set(
+          cloud.scaleX * (0.7 + p * 0.15),
+          cloud.scaleY * (0.8 + p * 0.1),
+          cloud.scaleZ * (0.6 + p * 0.12)
+        );
+        _cloudDummy.updateMatrix();
+        mesh.setMatrixAt(idx, _cloudDummy.matrix);
+        mesh.setColorAt(idx, _cloudColor);
+        idx++;
+      }
+    }
+
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  });
+
+  return (
+    <instancedMesh ref={groupRef} args={[undefined, undefined, totalPuffs]}>
+      <sphereGeometry args={[1, 12, 8]} />
+      <meshStandardMaterial
+        vertexColors
+        transparent
+        opacity={0.85}
+        depthWrite={false}
+      />
+    </instancedMesh>
+  );
+}
+
 const RadialGlowMaterial = shaderMaterial(
   { uColor: new Color("#FFD080"), uOpacity: 0.25 },
   `
@@ -1090,6 +1196,144 @@ function ParkPond({ position }: { position: [number, number, number] }) {
         <circleGeometry args={[2.5, 32]} />
         <meshStandardMaterial color="#4A7A5A" />
       </mesh>
+    </group>
+  );
+}
+
+function ParkGazebo({ position }: { position: [number, number, number] }) {
+  const postCount = 6;
+  const radius = 2.2;
+  const roofRadius = 2.8;
+  const postHeight = 2.8;
+  const roofPeakY = 4.2;
+
+  return (
+    <group position={position}>
+      {/* Floor platform */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]} receiveShadow>
+        <circleGeometry args={[radius + 0.3, 6]} />
+        <meshStandardMaterial color="#B8976A" />
+      </mesh>
+      {/* Posts */}
+      {Array.from({ length: postCount }, (_, i) => {
+        const angle = (i / postCount) * Math.PI * 2;
+        return (
+          <mesh
+            key={`gazebo-post-${i}`}
+            position={[Math.cos(angle) * radius, postHeight / 2 + 0.05, Math.sin(angle) * radius]}
+            castShadow
+          >
+            <cylinderGeometry args={[0.08, 0.1, postHeight, 8]} />
+            <meshStandardMaterial color="#F5F0E8" />
+          </mesh>
+        );
+      })}
+      {/* Railing between posts */}
+      {Array.from({ length: postCount }, (_, i) => {
+        const a1 = (i / postCount) * Math.PI * 2;
+        const a2 = ((i + 1) / postCount) * Math.PI * 2;
+        const x1 = Math.cos(a1) * radius;
+        const z1 = Math.sin(a1) * radius;
+        const x2 = Math.cos(a2) * radius;
+        const z2 = Math.sin(a2) * radius;
+        const cx = (x1 + x2) / 2;
+        const cz = (z1 + z2) / 2;
+        const len = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
+        const yaw = Math.atan2(x2 - x1, z2 - z1);
+        return (
+          <mesh
+            key={`gazebo-rail-${i}`}
+            position={[cx, 0.7, cz]}
+            rotation={[0, yaw, 0]}
+          >
+            <boxGeometry args={[0.06, 0.06, len]} />
+            <meshStandardMaterial color="#E8E0D8" />
+          </mesh>
+        );
+      })}
+      {/* Roof — hexagonal cone */}
+      <mesh position={[0, postHeight + 0.05, 0]} castShadow>
+        <coneGeometry args={[roofRadius, roofPeakY - postHeight, 6]} />
+        <meshStandardMaterial color="#8B4513" />
+      </mesh>
+      {/* Roof trim ring */}
+      <mesh position={[0, postHeight + 0.02, 0]}>
+        <cylinderGeometry args={[roofRadius + 0.05, roofRadius + 0.05, 0.08, 6]} />
+        <meshStandardMaterial color="#6B3E26" />
+      </mesh>
+      {/* Finial on top */}
+      <mesh position={[0, roofPeakY + 0.15, 0]}>
+        <sphereGeometry args={[0.12, 10, 8]} />
+        <meshStandardMaterial color="#D4A040" />
+      </mesh>
+    </group>
+  );
+}
+
+function ParkFountain({ position }: { position: [number, number, number] }) {
+  return (
+    <group position={position}>
+      {/* Base pool */}
+      <mesh position={[0, 0.15, 0]} receiveShadow>
+        <cylinderGeometry args={[1.6, 1.8, 0.3, 24]} />
+        <meshStandardMaterial color="#9CA3B0" />
+      </mesh>
+      {/* Water surface */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.28, 0]}>
+        <circleGeometry args={[1.5, 24]} />
+        <meshStandardMaterial color="#6BAADC" transparent opacity={0.7} />
+      </mesh>
+      {/* Inner pedestal */}
+      <mesh position={[0, 0.6, 0]} castShadow>
+        <cylinderGeometry args={[0.35, 0.5, 0.9, 16]} />
+        <meshStandardMaterial color="#B0B8C4" />
+      </mesh>
+      {/* Upper bowl */}
+      <mesh position={[0, 1.15, 0]} castShadow>
+        <cylinderGeometry args={[0.7, 0.3, 0.25, 18]} />
+        <meshStandardMaterial color="#A0A8B4" />
+      </mesh>
+      {/* Upper water */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 1.26, 0]}>
+        <circleGeometry args={[0.65, 18]} />
+        <meshStandardMaterial color="#6BAADC" transparent opacity={0.65} />
+      </mesh>
+      {/* Spout column */}
+      <mesh position={[0, 1.55, 0]} castShadow>
+        <cylinderGeometry args={[0.08, 0.12, 0.5, 10]} />
+        <meshStandardMaterial color="#B8C0CC" />
+      </mesh>
+      {/* Water spout tip */}
+      <mesh position={[0, 1.85, 0]}>
+        <sphereGeometry args={[0.1, 10, 8]} />
+        <meshStandardMaterial
+          color="#8BCAED"
+          emissive="#5BA8D0"
+          emissiveIntensity={0.3}
+          transparent
+          opacity={0.8}
+        />
+      </mesh>
+      {/* Cascading water streams (4 arcs) */}
+      {Array.from({ length: 4 }, (_, i) => {
+        const angle = (i / 4) * Math.PI * 2;
+        return (
+          <mesh
+            key={`fountain-stream-${i}`}
+            position={[Math.cos(angle) * 0.35, 1.0, Math.sin(angle) * 0.35]}
+            rotation={[0.3 * Math.cos(angle), 0, 0.3 * Math.sin(angle)]}
+          >
+            <cylinderGeometry args={[0.03, 0.01, 0.6, 6]} />
+            <meshStandardMaterial
+              color="#8BCAED"
+              emissive="#5BA8D0"
+              emissiveIntensity={0.2}
+              transparent
+              opacity={0.6}
+            />
+          </mesh>
+        );
+      })}
     </group>
   );
 }
@@ -1441,6 +1685,7 @@ export function Office() {
     <group>
       <GradientSkyDome materialRef={skyMaterialRef} />
       <StarField daylightRef={daylightRef} />
+      <CloudField daylightRef={daylightRef} />
 
       {/* Lighting */}
       <ambientLight ref={ambientLightRef} intensity={0.52} />
@@ -1523,6 +1768,10 @@ export function Office() {
           <ParkPath from={[-11, 4]} to={[-28, 18]} width={1.0} />
           {/* Pond */}
           <ParkPond position={[18, 0, -22]} />
+          {/* Gazebo */}
+          <ParkGazebo position={[-18, 0, 12]} />
+          {/* Fountain on the front path between the two trees */}
+          <ParkFountain position={[0, 0, 10]} />
           <YardBorderShrubs />
         </>
       )}
