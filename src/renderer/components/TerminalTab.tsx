@@ -33,6 +33,7 @@ export function TerminalTab({ terminalId, isActive }: TerminalTabProps) {
   const getNextDeskIndex = useAgentStore((s) => s.getNextDeskIndex)
   const addToast = useAgentStore((s) => s.addToast)
   const addEvent = useAgentStore((s) => s.addEvent)
+  const focusAgentTerminal = useAgentStore((s) => s.focusAgentTerminal)
 
   const clearCelebration = (agentId: string) => {
     useAgentStore.getState().updateAgent(agentId, {
@@ -81,9 +82,13 @@ export function TerminalTab({ terminalId, isActive }: TerminalTabProps) {
     terminalRef.current = term
     fitAddonRef.current = fitAddon
 
-    // Wire terminal input → PTY
+    // Wire terminal input → PTY (clear needsInput when user types)
     const inputDisposable = term.onData((data) => {
       window.electronAPI.terminal.write(terminalId, data)
+      const t = useAgentStore.getState().terminals.find((t) => t.id === terminalId)
+      if (t?.needsInput) {
+        updateTerminal(terminalId, { needsInput: false, needsInputReason: undefined })
+      }
     })
 
     // Wire PTY output → terminal + claude detector
@@ -202,6 +207,29 @@ export function TerminalTab({ terminalId, isActive }: TerminalTabProps) {
             addEvent({ ...evtBase, type: 'error', description: update.currentTask || 'Error detected' })
           }
 
+          // Human-in-the-loop: needs input detection
+          if (update.needsInput) {
+            const term = useAgentStore.getState().terminals.find((t) => t.id === terminalId)
+            if (!term?.needsInput) {
+              updateTerminal(terminalId, { needsInput: true, needsInputReason: update.inputReason })
+              const capturedAgentId = agentId
+              addToast({
+                message: `${currentAgent.name}: ${update.inputReason ?? 'Needs input'}`,
+                type: 'attention',
+                persistent: true,
+                action: {
+                  label: 'Go to Terminal',
+                  handler: () => focusAgentTerminal(capturedAgentId),
+                },
+              })
+              addEvent({ ...evtBase, type: 'needs_input', description: update.inputReason ?? 'Needs human input' })
+            }
+          }
+          // Clear needsInput when status moves away from waiting
+          if (update.status && update.status !== 'waiting' && currentAgent.status === 'waiting') {
+            updateTerminal(terminalId, { needsInput: false, needsInputReason: undefined })
+          }
+
           updateAgent(agentId, agentUpdates)
         }
       }
@@ -308,7 +336,7 @@ export function TerminalTab({ terminalId, isActive }: TerminalTabProps) {
     return () => {
       cleanupRef.current?.()
     }
-  }, [terminalId, updateAgent, addAgent, removeAgent, updateTerminal, getNextDeskIndex, addToast, addEvent])
+  }, [terminalId, updateAgent, addAgent, removeAgent, updateTerminal, getNextDeskIndex, addToast, addEvent, focusAgentTerminal])
 
   // Re-fit when tab becomes active
   useEffect(() => {

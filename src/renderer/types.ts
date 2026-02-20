@@ -25,6 +25,7 @@ export type AgentEventType =
   | 'spawn' | 'exit' | 'status_change' | 'file_write'
   | 'tool_call' | 'commit' | 'push'
   | 'test_pass' | 'test_fail' | 'build_pass' | 'build_fail' | 'error'
+  | 'needs_input'
 
 export type PluginHookEvent =
   | 'before_agent_start'

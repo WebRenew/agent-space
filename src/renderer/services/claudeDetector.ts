@@ -13,6 +13,8 @@ export interface ClaudeUpdate {
   testFailed?: boolean
   buildSucceeded?: boolean
   buildFailed?: boolean
+  needsInput?: boolean
+  inputReason?: string
 }
 
 const BUFFER_MAX = 4000
@@ -44,7 +46,12 @@ const PATTERNS = {
   testPass: /(?:Tests?\s+passed|PASS\s|✓\s*\d+\s*tests?|All\s+tests?\s+passed)/i,
   testFail: /(?:Tests?\s+failed|FAIL\s|✗\s*\d+\s*tests?|failures?:\s*[1-9])/i,
   buildSuccess: /(?:Build\s+succeeded|Successfully\s+compiled|built\s+in\s+\d)/i,
-  buildFail: /(?:Build\s+failed|Failed\s+to\s+compile|error\s+TS\d)/i
+  buildFail: /(?:Build\s+failed|Failed\s+to\s+compile|error\s+TS\d)/i,
+  // Human-in-the-loop detection patterns
+  needsInputUrl: /(?:verification_uri\s*\S*\s*https?:\/\/|https?:\/\/\S*(?:oauth\/|authorize\?|login\/(?:device|oauth)|callback\?|auth\/device))/i,
+  needsInputPrompt: /(?:Press Enter|Continue\?\s*\[Y\/n\]|proceed\?\s*\(y\/n\)|\[Y\/n\]|\(y\/n\)|confirm\?\s*\[y\/N\]|Do you want to continue)/i,
+  needsInputLink: /(?:Open this (?:link|URL)|Visit the following|open the following URL|Copy and paste this URL)/i,
+  needsInputAuth: /(?:Enter your (?:password|API key|token|secret)|Please (?:log in|authenticate|sign in)|Paste your.*token|Enter.*(?:passphrase|credentials))/i,
 } as const
 
 function parseTokenCount(raw: string): number {
@@ -159,6 +166,29 @@ export class ClaudeDetector {
     }
     if (PATTERNS.buildFail.test(recent)) {
       update.buildFailed = true
+      hasUpdate = true
+    }
+
+    // Human-in-the-loop detection (check recent chunk for interactive prompts)
+    if (PATTERNS.needsInputUrl.test(recent)) {
+      update.needsInput = true
+      update.inputReason = 'OAuth/auth URL needs browser interaction'
+      update.status = 'waiting'
+      hasUpdate = true
+    } else if (PATTERNS.needsInputAuth.test(recent)) {
+      update.needsInput = true
+      update.inputReason = 'Waiting for credentials or authentication'
+      update.status = 'waiting'
+      hasUpdate = true
+    } else if (PATTERNS.needsInputLink.test(recent)) {
+      update.needsInput = true
+      update.inputReason = 'A link needs to be opened'
+      update.status = 'waiting'
+      hasUpdate = true
+    } else if (PATTERNS.needsInputPrompt.test(recent)) {
+      update.needsInput = true
+      update.inputReason = 'Waiting for confirmation'
+      update.status = 'waiting'
       hasUpdate = true
     }
 

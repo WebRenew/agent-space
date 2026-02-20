@@ -160,13 +160,31 @@ export function TerminalPanelWrapper() {
               <span
                 style={{
                   width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                  background: term.isClaudeRunning ? '#548C5A' : '#595653',
-                  animation: term.isClaudeRunning ? 'pulse-green 2s ease-in-out infinite' : undefined,
+                  background: term.needsInput ? '#ffb400' : term.isClaudeRunning ? '#548C5A' : '#595653',
+                  animation: term.needsInput
+                    ? 'pulse-attention 1s ease-in-out infinite'
+                    : term.isClaudeRunning ? 'pulse-green 2s ease-in-out infinite' : undefined,
+                  boxShadow: term.needsInput ? '0 0 6px rgba(255,180,0,0.6)' : undefined,
                 }}
               />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }}>
                 {term.label}
               </span>
+              {term.needsInput && (
+                <span style={{
+                  background: 'rgba(255,180,0,0.2)',
+                  color: '#ffb400',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: '1px 5px',
+                  borderRadius: 8,
+                  letterSpacing: 0.5,
+                  lineHeight: '14px',
+                  flexShrink: 0,
+                }}>
+                  INPUT
+                </span>
+              )}
               <span
                 onClick={(e) => handleCloseTerminal(term.id, e)}
                 style={{

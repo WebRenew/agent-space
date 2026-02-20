@@ -41,7 +41,8 @@
       "node-pty"
     ],
     "overrides": {
-      "tar": ">=7.5.8"
+      "tar": ">=7.5.8",
+      "minimatch": ">=10.2.1"
     }
   },
   "dependencies": {
