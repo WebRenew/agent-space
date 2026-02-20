@@ -15,6 +15,7 @@ import { FloppyRain } from './effects/FloppyRain'
 import { DialupWave } from './effects/DialupWave'
 import { FaxBlast } from './effects/FaxBlast'
 import { OfficePlant } from './effects/OfficePlant'
+import { AttentionBubble } from './effects/AttentionBubble'
 
 interface AgentCharacterProps {
   agent: Agent
@@ -409,6 +410,7 @@ export function AgentCharacter({
 
       {/* Effects rendered at desk position */}
       {agent.status === 'thinking' && <ThoughtBubble position={[charPos[0], charPos[1] + 1.7, charPos[2]]} />}
+      {agent.status === 'waiting' && <AttentionBubble position={[charPos[0], charPos[1] + 1.7, charPos[2]]} />}
       {agent.status === 'error' && <DeskFire position={[position[0], position[1] + 0.8, position[2]]} />}
       {agent.status === 'streaming' && <Papers position={[position[0], position[1] + 0.9, position[2]]} />}
 

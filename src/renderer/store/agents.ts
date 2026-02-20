@@ -7,6 +7,8 @@ export interface TerminalInfo {
   isClaudeRunning: boolean
   scopeId: string | null
   cwd: string | null
+  needsInput?: boolean
+  needsInputReason?: string
 }
 
 export interface ChatSessionInfo {
@@ -55,6 +57,9 @@ interface AgentStore {
   addEvent: (event: Omit<AgentEvent, 'id' | 'timestamp'>) => void
   clearEvents: () => void
 
+  // Navigation
+  focusAgentTerminal: (agentId: string) => void
+
   // Token tracking
   recordTokenSnapshot: (id: string) => void
   recordModelTokens: (id: string, model: string, input: number, output: number) => void
@@ -63,8 +68,10 @@ interface AgentStore {
 export interface Toast {
   id: string
   message: string
-  type: 'info' | 'error' | 'success'
+  type: 'info' | 'error' | 'success' | 'attention'
   timestamp: number
+  action?: { label: string; handler: () => void }
+  persistent?: boolean
 }
 
 let toastCounter = 0
@@ -349,6 +356,15 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     })),
 
   clearEvents: () => set({ events: [] }),
+
+  // Navigation
+  focusAgentTerminal: (agentId) => {
+    const state = get()
+    const agent = state.agents.find((a) => a.id === agentId)
+    if (!agent) return
+    set({ activeTerminalId: agent.terminalId })
+    window.dispatchEvent(new CustomEvent('agent:focusTerminal', { detail: { terminalId: agent.terminalId } }))
+  },
 
   // Token tracking
   recordTokenSnapshot: (id) =>

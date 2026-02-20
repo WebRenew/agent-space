@@ -6,6 +6,7 @@ export function AgentCard() {
   const selectedId = useAgentStore((s) => s.selectedAgentId)
   const agent = useAgentStore((s) => s.agents.find((a) => a.id === selectedId))
   const selectAgent = useAgentStore((s) => s.selectAgent)
+  const focusAgentTerminal = useAgentStore((s) => s.focusAgentTerminal)
 
   if (!agent) return null
 
@@ -69,6 +70,39 @@ export function AgentCard() {
             0
           ).toFixed(4)}`}
         />
+      </div>
+
+      {/* Action row */}
+      <div style={{ marginTop: 10, borderTop: '1px solid rgba(89,86,83,0.15)', paddingTop: 10 }}>
+        <button
+          onClick={() => {
+            focusAgentTerminal(agent.id)
+            selectAgent(null)
+          }}
+          style={{
+            width: '100%',
+            padding: '5px 0',
+            borderRadius: 4,
+            border: '1px solid rgba(89,86,83,0.2)',
+            background: 'rgba(154,150,146,0.06)',
+            color: '#9A9692',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            transition: 'background 0.15s ease, color 0.15s ease',
+          }}
+          onMouseEnter={(e) => {
+            (e.target as HTMLButtonElement).style.background = 'rgba(154,150,146,0.12)'
+            ;(e.target as HTMLButtonElement).style.color = '#c8c4c0'
+          }}
+          onMouseLeave={(e) => {
+            (e.target as HTMLButtonElement).style.background = 'rgba(154,150,146,0.06)'
+            ;(e.target as HTMLButtonElement).style.color = '#9A9692'
+          }}
+        >
+          Go to Terminal
+        </button>
       </div>
     </div>
   )

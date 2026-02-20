@@ -535,6 +535,16 @@ export function useWorkspaceLayoutController(): WorkspaceLayoutController {
 
   useHotkeys(hotkeyBindings)
 
+  // Listen for agent:focusTerminal events to switch to the terminal panel
+  // (activeTerminalId is already set by the store's focusAgentTerminal action)
+  useEffect(() => {
+    const handler = (() => {
+      focusPanel('terminal')
+    }) as EventListener
+    window.addEventListener('agent:focusTerminal', handler)
+    return () => window.removeEventListener('agent:focusTerminal', handler)
+  }, [focusPanel])
+
   useEffect(() => {
     const api = window.electronAPI?.fs
     if (!api?.onOpenFolder) return

@@ -12,32 +12,45 @@ function formatUptime(startedAt: number): string {
 
 function AgentRow({ agent }: { agent: Agent }) {
   const isActive = agent.status !== 'done' && agent.status !== 'idle'
+  const isWaiting = agent.status === 'waiting'
+  const focusAgentTerminal = useAgentStore((s) => s.focusAgentTerminal)
 
   return (
     <div
       className="hover-row"
+      onClick={() => focusAgentTerminal(agent.id)}
       style={{
         display: 'grid',
         gridTemplateColumns: '1fr auto auto auto',
         gap: 12,
         fontSize: 'inherit',
+        cursor: 'pointer',
       }}
     >
-      <span style={{ color: '#9A9692', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ color: '#9A9692', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
         {agent.name}
+        {isWaiting && (
+          <span style={{
+            color: '#ffb400',
+            fontWeight: 700,
+            fontSize: 11,
+          }}>!</span>
+        )}
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <span
-          className={isActive ? 'pulse-dot' : ''}
+          className={isWaiting ? 'pulse-attention' : isActive ? 'pulse-dot' : ''}
           style={{
             width: 6,
             height: 6,
             borderRadius: '50%',
-            background: isActive ? '#548C5A' : '#595653',
+            background: isWaiting ? '#ffb400' : isActive ? '#548C5A' : '#595653',
             display: 'inline-block',
           }}
         />
-        <span style={{ color: '#74747C' }}>{isActive ? 'run' : 'idle'}</span>
+        <span style={{ color: isWaiting ? '#ffb400' : '#74747C' }}>
+          {isWaiting ? 'input' : isActive ? 'run' : 'idle'}
+        </span>
       </span>
       <span style={{ color: '#74747C' }}>{formatUptime(agent.started_at)}</span>
       <span style={{ color: '#74747C' }}>{agent.model || 'default'}</span>

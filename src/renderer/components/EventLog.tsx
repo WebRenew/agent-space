@@ -14,7 +14,8 @@ const EVENT_ICONS: Record<AgentEventType, { icon: string; color: string }> = {
   test_fail: { icon: '✗', color: '#c45050' },
   build_pass: { icon: '✓', color: '#548C5A' },
   build_fail: { icon: '✗', color: '#c45050' },
-  error: { icon: '!', color: '#c45050' }
+  error: { icon: '!', color: '#c45050' },
+  needs_input: { icon: '!', color: '#ffb400' }
 }
 
 function formatTime(ts: number): string {
