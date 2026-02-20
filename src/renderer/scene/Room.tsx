@@ -2,9 +2,13 @@ import { useCallback, useRef } from 'react'
 import type { MeshStandardMaterial } from 'three'
 import { DoubleSide } from 'three'
 import { registerWindowGlass, unregisterWindowGlass } from './window-glass-registry'
+import { ParkPath } from './exterior/ParkPath'
+import { ParkPond } from './exterior/ParkPond'
+import { ParkGazebo } from './exterior/ParkGazebo'
+import { ParkFountain } from './exterior/ParkFountain'
 
-const WALL_COLOR = '#e8e0d8'
-const FLOOR_COLOR = '#d4a574'
+const WALL_COLOR = '#E8E0D8'
+const FLOOR_COLOR = '#D4A574'
 const BACK_WINDOW_POSITIONS = [-7.2, -2.4, 2.4, 7.2] as const
 const SIDE_WINDOW_POSITIONS = [-10.2, -5.4] as const
 const BACK_WINDOW_SIZE = { width: 2, height: 1.4 } as const
@@ -62,7 +66,7 @@ function WallWindow({
   position,
   rotation = [0, 0, 0],
   width = 2,
-  height = 1.35,
+  height = 1.4,
 }: WallWindowProps) {
   const glassMaterialRef = useRef<MeshStandardMaterial | null>(null)
 
@@ -81,32 +85,29 @@ function WallWindow({
 
   return (
     <group position={position} rotation={rotation}>
-      {/* Frame */}
       <mesh castShadow>
         <boxGeometry args={[width + 0.25, height + 0.25, 0.08]} />
-        <meshStandardMaterial color="#6b5a48" />
+        <meshStandardMaterial color="#6B5A48" />
       </mesh>
-      {/* Glass — centered in frame so it's visible from both sides */}
       <mesh>
         <boxGeometry args={[width, height, 0.09]} />
         <meshStandardMaterial
           ref={glassRef}
-          color="#93c5fd"
-          emissive="#7dd3fc"
+          color="#93C5FD"
+          emissive="#7DD3FC"
           emissiveIntensity={0.35}
           transparent
           opacity={0.8}
           side={DoubleSide}
         />
       </mesh>
-      {/* Mullions — centered */}
       <mesh>
         <boxGeometry args={[0.08, height, 0.1]} />
-        <meshStandardMaterial color="#5a4632" />
+        <meshStandardMaterial color="#5A4632" />
       </mesh>
       <mesh>
         <boxGeometry args={[width, 0.08, 0.1]} />
-        <meshStandardMaterial color="#5a4632" />
+        <meshStandardMaterial color="#5A4632" />
       </mesh>
     </group>
   )
@@ -207,7 +208,7 @@ function YardBorderShrubs() {
       {shrubPositions.map((position, index) => (
         <mesh key={`yard-shrub-${index}`} position={position} castShadow>
           <sphereGeometry args={[0.38 + (index % 3) * 0.05, 14, 10]} />
-          <meshStandardMaterial color={index % 2 === 0 ? '#2f855a' : '#3fa16e'} />
+          <meshStandardMaterial color={index % 2 === 0 ? '#2F855A' : '#3FA16E'} />
         </mesh>
       ))}
     </group>
@@ -227,6 +228,22 @@ export function Room() {
         <planeGeometry args={[60, 50]} />
         <meshStandardMaterial color="#7FBD65" />
       </mesh>
+
+      {/* Walking paths */}
+      <ParkPath from={[0, 4]} to={[0, 25]} width={1.4} />
+      <ParkPath from={[0, -14]} to={[0, -35]} width={1.4} />
+      <ParkPath from={[-11, -5]} to={[-35, -5]} width={1.2} />
+      <ParkPath from={[11, -5]} to={[35, -5]} width={1.2} />
+      <ParkPath from={[11, 4]} to={[28, 18]} width={1.0} />
+      <ParkPath from={[-11, 4]} to={[-28, 18]} width={1.0} />
+
+      {/* Pond */}
+      <ParkPond position={[18, 0, -22]} />
+      {/* Gazebo */}
+      <ParkGazebo position={[-18, 0, 12]} />
+      {/* Fountain */}
+      <ParkFountain position={[0, 0, 10]} />
+
       <YardBorderShrubs />
 
       {/* Office floor */}
@@ -253,7 +270,6 @@ export function Room() {
           position={[x, 2.45, -13.88]}
           width={BACK_WINDOW_SIZE.width}
           height={BACK_WINDOW_SIZE.height}
-
         />
       ))}
 
@@ -287,7 +303,6 @@ export function Room() {
           rotation={[0, Math.PI / 2, 0]}
           width={SIDE_WINDOW_SIZE.width}
           height={SIDE_WINDOW_SIZE.height}
-
         />
       ))}
       {SIDE_WINDOW_POSITIONS.map((z) => (
@@ -297,15 +312,26 @@ export function Room() {
           rotation={[0, -Math.PI / 2, 0]}
           width={SIDE_WINDOW_SIZE.width}
           height={SIDE_WINDOW_SIZE.height}
-
         />
       ))}
 
-      {/* Area rug */}
-      <mesh position={[0, 0.005, -5]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[10, 8]} />
-        <meshStandardMaterial color="#4a5568" roughness={0.95} />
-      </mesh>
+      {/* Ceiling lights */}
+      {[
+        [-4, 3.9, -4],
+        [4, 3.9, -4],
+        [-4, 3.9, -9],
+        [4, 3.9, -9],
+        [0, 3.9, -6.5],
+      ].map((pos, i) => (
+        <mesh key={i} position={pos as [number, number, number]}>
+          <boxGeometry args={[2, 0.05, 0.5]} />
+          <meshStandardMaterial
+            color="white"
+            emissive="white"
+            emissiveIntensity={0.5}
+          />
+        </mesh>
+      ))}
     </group>
   )
 }

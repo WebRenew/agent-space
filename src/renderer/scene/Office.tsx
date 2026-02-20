@@ -1,45 +1,142 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { OrbitControls } from '@react-three/drei'
 import { Room } from './Room'
 import { Lighting } from './Lighting'
 import { Desk } from './Desk'
 import { AgentCharacter } from './AgentCharacter'
-import { OfficeCat } from './OfficeCat'
+import { CelebrationEffect } from './CelebrationEffect'
+import { CloudField } from './exterior/CloudField'
+import { MonitorWall } from './furniture/MonitorWall'
+import { Bookshelf } from './furniture/Bookshelf'
+import { CoffeeStation } from './furniture/CoffeeStation'
+import { ServerRack } from './furniture/ServerRack'
+import { TaskBoard } from './furniture/TaskBoard'
+import { Whiteboard } from './furniture/Whiteboard'
+import { InstancedPlantPots } from './plants/InstancedPlantPots'
+import { PlantLeaves } from './plants/PlantLeaves'
+import { ExteriorTree } from './exterior/ExteriorTree'
+import { ExteriorBench } from './exterior/ExteriorBench'
+import { ExteriorLamp } from './exterior/ExteriorLamp'
+import { ExteriorFlowerBed } from './exterior/ExteriorFlowerBed'
 import { useAgentStore } from '../store/agents'
-import { useWorkspaceStore } from '../store/workspace'
-import { useWorkspaceIntelligenceStore } from '../store/workspaceIntelligence'
-import { OfficeSignals } from './OfficeSignals'
-import { PizzaParty } from './effects/PizzaParty'
+import { resolveOfficeDeskLayout } from '../lib/office-layout'
+import type { AgentStatus } from '../types'
 
-const COLS = 2
-const X_SPACING = 3.0
-const Z_SPACING = 3.5
-const X_OFFSET = -1.0
-const Z_OFFSET = -6.0
-const DESK_FACING_Y = Math.PI
-const PARTY_CENTER: [number, number, number] = [0, 0, -6.35]
-const PARTY_RADIUS = 1.75
+const SCREEN_COLORS: Record<AgentStatus, { color: string; emissive: string; intensity: number }> = {
+  idle: { color: '#1a1a2e', emissive: '#334155', intensity: 0.1 },
+  thinking: { color: '#facc15', emissive: '#facc15', intensity: 0.4 },
+  streaming: { color: '#22C55E', emissive: '#22C55E', intensity: 0.5 },
+  tool_calling: { color: '#a78bfa', emissive: '#a78bfa', intensity: 0.4 },
+  waiting: { color: '#fb923c', emissive: '#fb923c', intensity: 0.3 },
+  error: { color: '#ef4444', emissive: '#ef4444', intensity: 0.6 },
+  done: { color: '#22d3ee', emissive: '#22d3ee', intensity: 0.3 },
+}
+
+const PIZZA_CENTER: [number, number, number] = [0, 0, -6.35]
+const PIZZA_RADIUS = 1.75
 const DANCE_CENTER: [number, number, number] = [0, 0, -5]
 const DANCE_RADIUS = 2.2
 const SNACK_BAR_POSITION: [number, number, number] = [10.05, 0, 0.95]
 
-function computeDeskPosition(index: number): [number, number, number] {
-  const col = index % COLS
-  const row = Math.floor(index / COLS)
-  return [X_OFFSET + col * X_SPACING, 0, Z_OFFSET + row * Z_SPACING]
+type ExteriorPropType = 'tree' | 'bench' | 'lamp' | 'flower'
+
+interface PlantLayout {
+  position: [number, number, number]
+  scale: number
 }
 
-function computePartySeatPosition(index: number, total: number): [number, number, number] {
+interface ExteriorPropLayout {
+  type: ExteriorPropType
+  position: [number, number, number]
+  rotation?: [number, number, number]
+  scale?: number
+}
+
+const OFFICE_PLANT_LAYOUT: PlantLayout[] = [
+  { position: [-10, 0, -13], scale: 1.15 },
+  { position: [10, 0, -13], scale: 1.15 },
+  { position: [-10, 0, 3], scale: 1.1 },
+  { position: [10, 0, 3], scale: 1.1 },
+  { position: [-3.4, 0, -13.1], scale: 0.9 },
+  { position: [3.4, 0, -13.1], scale: 0.9 },
+  { position: [-10.05, 0, -5.2], scale: 0.85 },
+  { position: [10.05, 0, -5.2], scale: 0.85 },
+  { position: [0, 0, 2.8], scale: 0.95 },
+  { position: [6.8, 0, -11.3], scale: 0.75 },
+  { position: [-6.9, 0, -11.2], scale: 0.78 },
+  { position: [-1.8, 0, -11.7], scale: 0.82 },
+  { position: [1.8, 0, -11.7], scale: 0.82 },
+  { position: [0, 0, -12.5], scale: 0.88 },
+  { position: [-6.9, 0, 2.4], scale: 0.84 },
+  { position: [6.9, 0, 2.4], scale: 0.84 },
+]
+
+const EXTERIOR_PROP_LAYOUT: ExteriorPropLayout[] = [
+  // Near trees (close to office)
+  { type: 'tree', position: [-15.5, 0, -15.8], scale: 1.5 },
+  { type: 'tree', position: [15.5, 0, -15.8], scale: 1.5 },
+  { type: 'tree', position: [-15.5, 0, 5.8], scale: 1.35 },
+  { type: 'tree', position: [15.5, 0, 5.8], scale: 1.35 },
+  { type: 'tree', position: [-1.6, 0, 7.2], scale: 1.2 },
+  { type: 'tree', position: [1.6, 0, 7.2], scale: 1.2 },
+  // Near amenities
+  { type: 'bench', position: [-13.4, 0, -6.2], rotation: [0, Math.PI / 2, 0], scale: 1.15 },
+  { type: 'bench', position: [13.4, 0, -6.2], rotation: [0, -Math.PI / 2, 0], scale: 1.15 },
+  { type: 'bench', position: [0, 0, 7.8], rotation: [0, Math.PI, 0], scale: 1 },
+  { type: 'lamp', position: [-13.8, 0, -12], scale: 1 },
+  { type: 'lamp', position: [13.8, 0, -12], scale: 1 },
+  { type: 'lamp', position: [0, 0, 8.9], scale: 0.92 },
+  { type: 'flower', position: [-11.8, 0, 4.8], scale: 1.15 },
+  { type: 'flower', position: [11.8, 0, 4.8], scale: 1.15 },
+  { type: 'flower', position: [-4.8, 0, 6.6], scale: 0.95 },
+  { type: 'flower', position: [4.8, 0, 6.6], scale: 0.95 },
+  // Park trees (mid-distance ring)
+  { type: 'tree', position: [-22, 0, -20], scale: 1.8 },
+  { type: 'tree', position: [22, 0, -20], scale: 1.6 },
+  { type: 'tree', position: [-20, 0, 10], scale: 1.7 },
+  { type: 'tree', position: [20, 0, 10], scale: 1.5 },
+  { type: 'tree', position: [-8, 0, 14], scale: 1.4 },
+  { type: 'tree', position: [8, 0, 14], scale: 1.3 },
+  { type: 'tree', position: [0, 0, -24], scale: 1.6 },
+  { type: 'tree', position: [-14, 0, -24], scale: 1.45 },
+  { type: 'tree', position: [14, 0, -24], scale: 1.55 },
+  // Park benches along paths
+  { type: 'bench', position: [2.2, 0, 14], rotation: [0, 0, 0], scale: 1 },
+  { type: 'bench', position: [-18, 0, -5], rotation: [0, Math.PI / 2, 0], scale: 1 },
+  { type: 'bench', position: [18, 0, -5], rotation: [0, -Math.PI / 2, 0], scale: 1 },
+  // Park lamps along paths
+  { type: 'lamp', position: [-16, 0, -5], scale: 1.05 },
+  { type: 'lamp', position: [16, 0, -5], scale: 1.05 },
+  { type: 'lamp', position: [0, 0, 16], scale: 0.95 },
+  { type: 'lamp', position: [0, 0, -20], scale: 1 },
+  // Flower beds near pond
+  { type: 'flower', position: [15.5, 0, -21], scale: 1.2 },
+  { type: 'flower', position: [20.5, 0, -20], scale: 1.1 },
+  // Far trees (background depth)
+  { type: 'tree', position: [-30, 0, -28], scale: 2.0 },
+  { type: 'tree', position: [30, 0, -28], scale: 1.9 },
+  { type: 'tree', position: [-28, 0, 15], scale: 1.8 },
+  { type: 'tree', position: [28, 0, 15], scale: 1.7 },
+  { type: 'tree', position: [-35, 0, -10], scale: 2.1 },
+  { type: 'tree', position: [35, 0, -10], scale: 1.95 },
+  { type: 'tree', position: [-18, 0, -32], scale: 1.7 },
+  { type: 'tree', position: [18, 0, -32], scale: 1.85 },
+  { type: 'tree', position: [0, 0, 20], scale: 1.6 },
+  { type: 'tree', position: [-10, 0, 20], scale: 1.5 },
+  { type: 'tree', position: [10, 0, 20], scale: 1.45 },
+]
+
+function computePizzaSeat(index: number, total: number): [number, number, number] {
   const count = Math.max(3, total)
   const angle = (index / count) * Math.PI * 2 - Math.PI / 2
   return [
-    PARTY_CENTER[0] + Math.cos(angle) * PARTY_RADIUS,
+    PIZZA_CENTER[0] + Math.cos(angle) * PIZZA_RADIUS,
     0,
-    PARTY_CENTER[2] + Math.sin(angle) * PARTY_RADIUS,
+    PIZZA_CENTER[2] + Math.sin(angle) * PIZZA_RADIUS,
   ]
 }
 
-function computeDanceSeatPosition(index: number, total: number): [number, number, number] {
+function computeDanceSeat(index: number, total: number): [number, number, number] {
   const count = Math.max(3, total)
   const angle = (index / count) * Math.PI * 2 - Math.PI / 2
   return [
@@ -151,185 +248,155 @@ function OfficeSnackBar({
 
 export function Office() {
   const agents = useAgentStore((s) => s.agents)
-  const chatSessions = useAgentStore((s) => s.chatSessions)
-  const activeChatSessionId = useAgentStore((s) => s.activeChatSessionId)
-  const workspaceRoot = useWorkspaceStore((s) => s.rootPath)
-  const snapshots = useWorkspaceIntelligenceStore((s) => s.snapshots)
-  const rewards = useWorkspaceIntelligenceStore((s) => s.rewards)
+  const daylightRef = useRef(1)
 
-  // Show only primary chat/terminal agents in Office.
   const deskAgents = useMemo(() => agents.filter((a) => !a.isSubagent), [agents])
+  const deskLayout = useMemo(
+    () => resolveOfficeDeskLayout(Math.max(14, deskAgents.length)),
+    [deskAgents.length]
+  )
 
-  const activeWorkspaceDirectory = useMemo(() => {
-    const activeChat = chatSessions.find((session) => session.id === activeChatSessionId) ?? null
-    return activeChat?.workingDirectory ?? workspaceRoot ?? null
-  }, [activeChatSessionId, chatSessions, workspaceRoot])
+  const visibleAgents = useMemo(
+    () => deskAgents.slice(0, deskLayout.length),
+    [deskAgents, deskLayout.length]
+  )
 
-  const scopedRewards = useMemo(() => {
-    if (!activeWorkspaceDirectory) return rewards
-    return rewards.filter((reward) => reward.workspaceDirectory === activeWorkspaceDirectory)
-  }, [activeWorkspaceDirectory, rewards])
-
-  const latestReward = scopedRewards[scopedRewards.length - 1] ?? null
-  const recentRewards = scopedRewards.slice(-10)
-  const successCount = recentRewards.filter((reward) => reward.status === 'success').length
-  const successRate = recentRewards.length > 0 ? successCount / recentRewards.length : 0
-  const activeSnapshot = activeWorkspaceDirectory ? snapshots[activeWorkspaceDirectory] : undefined
-  const contextCoverage = latestReward
-    ? latestReward.contextScore
-    : Math.min(1, (activeSnapshot?.keyFiles.length ?? 0) / 8)
-  const contextFiles = latestReward?.contextFiles ?? activeSnapshot?.keyFiles.length ?? 0
-  const dirtyFiles = activeSnapshot?.gitDirtyFiles ?? 0
-
-  // Only show desks for active desk agents — no empty desks
-  const maxIndex = deskAgents.length > 0 ? Math.max(...deskAgents.map((a) => a.deskIndex)) : -1
-  const deskCount = deskAgents.length > 0 ? Math.max(deskAgents.length, maxIndex + 1) : 0
-
-  const deskSlots = useMemo(() => {
-    return Array.from({ length: deskCount }, (_, i) => ({
-      index: i,
-      position: computeDeskPosition(i)
-    }))
-  }, [deskCount])
   const partyAgents = useMemo(
-    () => deskAgents
+    () => visibleAgents
       .filter((agent) => agent.activeCelebration === 'pizza_party')
       .sort((a, b) => a.deskIndex - b.deskIndex),
-    [deskAgents]
+    [visibleAgents]
   )
   const partySeatByAgentId = useMemo(() => {
     const map = new Map<string, [number, number, number]>()
     for (let index = 0; index < partyAgents.length; index += 1) {
-      map.set(
-        partyAgents[index].id,
-        computePartySeatPosition(index, partyAgents.length)
-      )
+      map.set(partyAgents[index].id, computePizzaSeat(index, partyAgents.length))
     }
     return map
   }, [partyAgents])
-  const partyWaveKey = partyAgents.reduce(
+  const partyStartedAt = partyAgents.reduce(
     (latest, agent) => Math.max(latest, agent.celebrationStartedAt ?? 0),
     0
   )
+
   const danceAgents = useMemo(
-    () => deskAgents
+    () => visibleAgents
       .filter((agent) => agent.activeCelebration === 'dance_party')
       .sort((a, b) => a.deskIndex - b.deskIndex),
-    [deskAgents]
+    [visibleAgents]
   )
   const danceSeatByAgentId = useMemo(() => {
     const map = new Map<string, [number, number, number]>()
     for (let index = 0; index < danceAgents.length; index += 1) {
-      map.set(
-        danceAgents[index].id,
-        computeDanceSeatPosition(index, danceAgents.length)
-      )
+      map.set(danceAgents[index].id, computeDanceSeat(index, danceAgents.length))
     }
     return map
   }, [danceAgents])
+  const danceStartedAt = danceAgents.reduce(
+    (latest, agent) => Math.max(latest, agent.celebrationStartedAt ?? 0),
+    0
+  )
 
   return (
-    <>
-      <Lighting />
+    <group>
+      <Lighting daylightRef={daylightRef} />
+      <CloudField daylightRef={daylightRef} />
       <Room />
 
-      {deskSlots.map(({ index, position }) => {
-        const agent = deskAgents.find((a) => a.deskIndex === index)
+      {/* Agent desks + characters + celebrations */}
+      {visibleAgents.map((agent) => {
+        const layout = deskLayout[agent.deskIndex]
+        if (!layout) return null
+        const partyTarget = partySeatByAgentId.get(agent.id)
+          ?? danceSeatByAgentId.get(agent.id)
+          ?? null
+        const lookAt = partySeatByAgentId.has(agent.id)
+          ? PIZZA_CENTER
+          : danceSeatByAgentId.has(agent.id)
+            ? DANCE_CENTER
+            : null
         return (
-          <group key={index}>
+          <group key={agent.id}>
             <Desk
-              position={position}
-              status={agent?.status ?? 'idle'}
-              tokensUsed={(agent?.tokens_input ?? 0) + (agent?.tokens_output ?? 0)}
+              position={layout.position}
+              rotation={layout.rotation}
+              screen={SCREEN_COLORS[agent.status]}
             />
-            {agent && (
-              <AgentCharacter
-                agent={agent}
-                position={position}
-                facingY={DESK_FACING_Y}
-                partySeatPosition={
-                  partySeatByAgentId.get(agent.id)
-                  ?? danceSeatByAgentId.get(agent.id)
-                  ?? null
-                }
-                partyLookAtPosition={
-                  partySeatByAgentId.has(agent.id)
-                    ? PARTY_CENTER
-                    : danceSeatByAgentId.has(agent.id)
-                      ? DANCE_CENTER
-                      : null
-                }
+            <AgentCharacter
+              agent={agent}
+              position={layout.facing}
+              rotation={[0, 0, 0]}
+              partyTargetPosition={partyTarget}
+              partyLookAtPosition={lookAt}
+            />
+            {agent.activeCelebration && agent.celebrationStartedAt
+              && agent.activeCelebration !== 'pizza_party'
+              && agent.activeCelebration !== 'dance_party' && (
+              <CelebrationEffect
+                type={agent.activeCelebration}
+                startedAt={agent.celebrationStartedAt}
+                position={layout.position}
               />
             )}
           </group>
         )
       })}
 
+      {/* Pizza party gathering */}
       {partyAgents.length > 0 && (
         <group>
-          {/* Pizza table where agents gather during a party */}
-          <mesh position={[PARTY_CENTER[0], 0.72, PARTY_CENTER[2]]} castShadow receiveShadow>
-            <cylinderGeometry args={[0.95, 0.95, 0.06, 24]} />
-            <meshStandardMaterial color="#6b4a35" roughness={0.55} />
+          <mesh position={[PIZZA_CENTER[0], 0.72, PIZZA_CENTER[2]]} castShadow receiveShadow>
+            <cylinderGeometry args={[1.1, 1.1, 0.08, 26]} />
+            <meshStandardMaterial color="#6B4226" />
           </mesh>
-          <mesh position={[PARTY_CENTER[0], 0.38, PARTY_CENTER[2]]} castShadow>
-            <cylinderGeometry args={[0.11, 0.16, 0.72, 10]} />
-            <meshStandardMaterial color="#4a3728" />
+          <mesh position={[PIZZA_CENTER[0], 0.38, PIZZA_CENTER[2]]} castShadow>
+            <cylinderGeometry args={[0.12, 0.18, 0.72, 10]} />
+            <meshStandardMaterial color="#4A2F1D" />
           </mesh>
-          <mesh position={[PARTY_CENTER[0], 0.02, PARTY_CENTER[2]]}>
-            <cylinderGeometry args={[0.45, 0.45, 0.04, 14]} />
-            <meshStandardMaterial color="#4a3728" />
+          <mesh position={[PIZZA_CENTER[0], 0.03, PIZZA_CENTER[2]]}>
+            <cylinderGeometry args={[0.55, 0.55, 0.05, 14]} />
+            <meshStandardMaterial color="#4A2F1D" />
           </mesh>
 
-          {/* Party spread */}
-          <mesh position={[PARTY_CENTER[0] - 0.2, 0.77, PARTY_CENTER[2] - 0.06]} castShadow>
-            <boxGeometry args={[0.46, 0.035, 0.46]} />
-            <meshStandardMaterial color="#c87830" roughness={0.8} />
+          {/* Pizza boxes + slices */}
+          <mesh position={[PIZZA_CENTER[0] - 0.22, 0.79, PIZZA_CENTER[2] - 0.08]}>
+            <boxGeometry args={[0.48, 0.04, 0.48]} />
+            <meshStandardMaterial color="#C87830" />
           </mesh>
-          <mesh position={[PARTY_CENTER[0] + 0.16, 0.79, PARTY_CENTER[2] + 0.03]} castShadow>
+          <mesh position={[PIZZA_CENTER[0] + 0.18, 0.81, PIZZA_CENTER[2] + 0.05]}>
             <cylinderGeometry args={[0.19, 0.19, 0.02, 24]} />
-            <meshStandardMaterial color="#f4d03f" roughness={0.58} />
+            <meshStandardMaterial color="#F4D03F" />
           </mesh>
           {Array.from({ length: 6 }, (_, index) => {
             const angle = (index / 6) * Math.PI * 2
             return (
               <mesh
-                key={`party-slice-${index}`}
+                key={`slice-${index}`}
                 position={[
-                  PARTY_CENTER[0] + 0.16 + Math.cos(angle) * 0.09,
-                  0.805,
-                  PARTY_CENTER[2] + 0.03 + Math.sin(angle) * 0.09,
+                  PIZZA_CENTER[0] + 0.18 + Math.cos(angle) * 0.09,
+                  0.825,
+                  PIZZA_CENTER[2] + 0.05 + Math.sin(angle) * 0.09,
                 ]}
                 rotation={[0, -angle, 0]}
               >
                 <boxGeometry args={[0.075, 0.008, 0.03]} />
-                <meshStandardMaterial color="#c45050" />
+                <meshStandardMaterial color="#C45050" />
               </mesh>
             )
           })}
 
-          {/* Party accent lights */}
-          <pointLight
-            position={[PARTY_CENTER[0] - 1.1, 2.4, PARTY_CENTER[2] - 0.7]}
-            color="#fbbf24"
-            intensity={0.45}
-            distance={5.2}
-          />
-          <pointLight
-            position={[PARTY_CENTER[0] + 1.2, 2.2, PARTY_CENTER[2] + 0.8]}
-            color="#fb7185"
-            intensity={0.32}
-            distance={4.8}
-          />
-
-          <PizzaParty
-            key={`pizza-party-${partyWaveKey}`}
-            position={[PARTY_CENTER[0], -0.55, PARTY_CENTER[2]]}
-            onComplete={() => undefined}
-          />
+          {partyStartedAt > 0 && (
+            <CelebrationEffect
+              key={`pizza-party-${partyStartedAt}`}
+              type="pizza_party"
+              startedAt={partyStartedAt}
+              position={PIZZA_CENTER}
+            />
+          )}
         </group>
       )}
 
+      {/* Dance party floor */}
       {danceAgents.length > 0 && (
         <group>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[DANCE_CENTER[0], 0.005, DANCE_CENTER[2]]}>
@@ -358,57 +425,72 @@ export function Office() {
               </mesh>
             )
           })}
+          {danceStartedAt > 0 && (
+            <CelebrationEffect
+              key={`dance-party-${danceStartedAt}`}
+              type="dance_party"
+              startedAt={danceStartedAt}
+              position={DANCE_CENTER}
+            />
+          )}
         </group>
       )}
 
-      <OfficeCat />
-
-      {/* Filing cabinet near back wall */}
-      <mesh position={[4.5, 0.5, -5.5]} castShadow>
-        <boxGeometry args={[0.8, 1, 0.5]} />
-        <meshStandardMaterial color="#6b7280" metalness={0.3} roughness={0.7} />
-      </mesh>
-      <mesh position={[4.5, 0.25, -5.25]}>
-        <boxGeometry args={[0.6, 0.08, 0.02]} />
-        <meshStandardMaterial color="#9ca3af" />
-      </mesh>
-      <mesh position={[4.5, 0.75, -5.25]}>
-        <boxGeometry args={[0.6, 0.08, 0.02]} />
-        <meshStandardMaterial color="#9ca3af" />
-      </mesh>
-
-      {/* Water cooler */}
-      <group position={[-5.5, 0, 3]}>
-        <mesh position={[0, 0.4, 0]} castShadow>
-          <boxGeometry args={[0.3, 0.8, 0.3]} />
-          <meshStandardMaterial color="#e5e7eb" />
-        </mesh>
-        <mesh position={[0, 0.9, 0]} castShadow>
-          <cylinderGeometry args={[0.15, 0.15, 0.3, 8]} />
-          <meshStandardMaterial color="#93c5fd" transparent opacity={0.7} />
-        </mesh>
-      </group>
+      {/* Office furniture detail props */}
+      <TaskBoard position={[0, 1.8, -13.85]} />
+      <MonitorWall position={[10.88, 0, -5]} rotation={[0, -Math.PI / 2, 0]} />
+      <Bookshelf position={[-6, 1.1, -13.7]} />
+      <CoffeeStation position={[6, 0, -12]} />
+      <ServerRack position={[9.5, 1, -12]} />
+      <Whiteboard position={[2, 1.5, -13.85]} />
 
       {/* Office snack bar */}
       <OfficeSnackBar position={SNACK_BAR_POSITION} rotation={[0, -Math.PI / 2, 0]} />
 
-      {/* Whiteboard on back wall */}
-      <mesh position={[2, 1.5, -13.85]}>
-        <boxGeometry args={[2.5, 1.5, 0.05]} />
-        <meshStandardMaterial color="#f8fafc" />
-      </mesh>
-      <mesh position={[2, 1.5, -13.82]}>
-        <boxGeometry args={[2.3, 1.3, 0.02]} />
-        <meshStandardMaterial color="#fff" />
-      </mesh>
+      {/* Plants throughout the office */}
+      <InstancedPlantPots plants={OFFICE_PLANT_LAYOUT} />
+      {OFFICE_PLANT_LAYOUT.map((plant, index) => (
+        <PlantLeaves key={`office-plant-${index}`} position={plant.position} scale={plant.scale} />
+      ))}
 
-      <OfficeSignals
-        contextCoverage={contextCoverage}
-        rewardScore={latestReward?.rewardScore ?? null}
-        successRate={successRate}
-        contextFiles={contextFiles}
-        dirtyFiles={dirtyFiles}
-      />
+      {/* Exterior props */}
+      {EXTERIOR_PROP_LAYOUT.map((prop, index) => {
+        if (prop.type === 'tree') {
+          return (
+            <ExteriorTree
+              key={`exterior-tree-${index}`}
+              position={prop.position}
+              scale={prop.scale}
+            />
+          )
+        }
+        if (prop.type === 'bench') {
+          return (
+            <ExteriorBench
+              key={`exterior-bench-${index}`}
+              position={prop.position}
+              rotation={prop.rotation}
+              scale={prop.scale}
+            />
+          )
+        }
+        if (prop.type === 'lamp') {
+          return (
+            <ExteriorLamp
+              key={`exterior-lamp-${index}`}
+              position={prop.position}
+              scale={prop.scale}
+            />
+          )
+        }
+        return (
+          <ExteriorFlowerBed
+            key={`exterior-flower-${index}`}
+            position={prop.position}
+            scale={prop.scale}
+          />
+        )
+      })}
 
       <OrbitControls
         makeDefault
@@ -421,6 +503,6 @@ export function Office() {
         maxDistance={18}
         enablePan={false}
       />
-    </>
+    </group>
   )
 }

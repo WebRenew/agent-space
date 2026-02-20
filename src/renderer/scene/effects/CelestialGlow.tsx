@@ -36,7 +36,7 @@ declare module '@react-three/fiber' {
 interface CelestialGlowProps {
   targetRef: React.RefObject<{ position: { x: number; y: number; z: number } } | null>
   color: string
-  visibility: number
+  visibilityFn: () => number
   outerScale: number
   innerScale: number
 }
@@ -44,7 +44,7 @@ interface CelestialGlowProps {
 export function CelestialGlow({
   targetRef,
   color,
-  visibility,
+  visibilityFn,
   outerScale,
   innerScale,
 }: CelestialGlowProps) {
@@ -59,7 +59,7 @@ export function CelestialGlow({
     if (!target) return
 
     const pos = target.position
-    const fadeOpacity = MathUtils.clamp(visibility, 0, 1)
+    const fadeOpacity = MathUtils.clamp(visibilityFn(), 0, 1)
 
     if (outerRef.current) {
       outerRef.current.position.set(pos.x, pos.y, pos.z)

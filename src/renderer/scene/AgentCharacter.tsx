@@ -1,515 +1,223 @@
-import { useRef, useMemo } from 'react'
+import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
+import { Html } from '@react-three/drei'
 import type { Group } from 'three'
-import type { Agent, AgentAppearance } from '../types'
-import { useAgentStore } from '../store/agents'
-import { ThoughtBubble } from './effects/ThoughtBubble'
-import { DeskFire } from './effects/DeskFire'
-import { Papers } from './effects/Papers'
-import { Confetti } from './effects/Confetti'
-import { Rocket } from './effects/Rocket'
-import { Sparkles } from './effects/Sparkles'
-import { Explosion } from './effects/Explosion'
-import { Trophy } from './effects/Trophy'
-import { FloppyRain } from './effects/FloppyRain'
-import { DialupWave } from './effects/DialupWave'
-import { FaxBlast } from './effects/FaxBlast'
-import { OfficePlant } from './effects/OfficePlant'
+import type { Agent, AgentStatus } from '../types'
+import { STATUS_LABELS } from '../types'
+
+const STATUS_GLOW: Record<AgentStatus, string> = {
+  idle: '#94a3b8',
+  thinking: '#facc15',
+  streaming: '#4ade80',
+  tool_calling: '#a78bfa',
+  waiting: '#fb923c',
+  error: '#ef4444',
+  done: '#22d3ee',
+}
 
 interface AgentCharacterProps {
   agent: Agent
   position: [number, number, number]
-  facingY?: number
-  partySeatPosition?: [number, number, number] | null
+  rotation?: [number, number, number]
+  partyTargetPosition?: [number, number, number] | null
   partyLookAtPosition?: [number, number, number] | null
-}
-
-function Hair({ appearance }: { appearance: AgentAppearance }) {
-  const { hairColor, hairStyle } = appearance
-
-  switch (hairStyle) {
-    case 'buzz':
-      return (
-        <mesh position={[0, 0.18, 0]} castShadow>
-          <boxGeometry args={[0.42, 0.1, 0.37]} />
-          <meshStandardMaterial color={hairColor} />
-        </mesh>
-      )
-    case 'short':
-      return (
-        <group>
-          {/* Top */}
-          <mesh position={[0, 0.22, -0.02]} castShadow>
-            <boxGeometry args={[0.42, 0.15, 0.38]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-          {/* Sides */}
-          <mesh position={[-0.2, 0.05, -0.02]} castShadow>
-            <boxGeometry args={[0.06, 0.2, 0.36]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-          <mesh position={[0.2, 0.05, -0.02]} castShadow>
-            <boxGeometry args={[0.06, 0.2, 0.36]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-        </group>
-      )
-    case 'long':
-      return (
-        <group>
-          {/* Top */}
-          <mesh position={[0, 0.22, -0.02]} castShadow>
-            <boxGeometry args={[0.44, 0.14, 0.4]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-          {/* Sides hanging down */}
-          <mesh position={[-0.21, -0.05, -0.02]} castShadow>
-            <boxGeometry args={[0.07, 0.45, 0.38]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-          <mesh position={[0.21, -0.05, -0.02]} castShadow>
-            <boxGeometry args={[0.07, 0.45, 0.38]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-          {/* Back */}
-          <mesh position={[0, -0.05, -0.18]} castShadow>
-            <boxGeometry args={[0.44, 0.45, 0.06]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-        </group>
-      )
-    case 'ponytail':
-      return (
-        <group>
-          {/* Top */}
-          <mesh position={[0, 0.22, -0.02]} castShadow>
-            <boxGeometry args={[0.44, 0.14, 0.4]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-          {/* Ponytail */}
-          <mesh position={[0, 0.1, -0.25]} castShadow>
-            <boxGeometry args={[0.12, 0.12, 0.15]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-          <mesh position={[0, -0.1, -0.28]} castShadow>
-            <boxGeometry args={[0.1, 0.25, 0.1]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-        </group>
-      )
-    case 'mohawk':
-      return (
-        <group>
-          {/* Mohawk strip */}
-          <mesh position={[0, 0.3, 0]} castShadow>
-            <boxGeometry args={[0.08, 0.22, 0.32]} />
-            <meshStandardMaterial color={hairColor} />
-          </mesh>
-          {/* Shaved sides */}
-          <mesh position={[-0.19, 0.15, 0]} castShadow>
-            <boxGeometry args={[0.04, 0.06, 0.34]} />
-            <meshStandardMaterial color={hairColor} roughness={0.9} />
-          </mesh>
-          <mesh position={[0.19, 0.15, 0]} castShadow>
-            <boxGeometry args={[0.04, 0.06, 0.34]} />
-            <meshStandardMaterial color={hairColor} roughness={0.9} />
-          </mesh>
-        </group>
-      )
-  }
 }
 
 export function AgentCharacter({
   agent,
   position,
-  facingY,
-  partySeatPosition,
-  partyLookAtPosition,
+  rotation = [0, 0, 0],
+  partyTargetPosition = null,
+  partyLookAtPosition = null,
 }: AgentCharacterProps) {
-  const groupRef = useRef<Group>(null)
-  const headRef = useRef<Group>(null)
-  const leftArmRef = useRef<Group>(null)
-  const rightArmRef = useRef<Group>(null)
-  const bodyRef = useRef<Group>(null)
-  const selectAgent = useAgentStore((s) => s.selectAgent)
+  const rootGroup = useRef<Group>(null)
+  const group = useRef<Group>(null)
+  const { appearance, status } = agent
+  const glow = STATUS_GLOW[status]
+  const isPizzaParty = agent.activeCelebration === 'pizza_party' && partyTargetPosition !== null
+  const isDancing = agent.activeCelebration === 'dance_party' && partyTargetPosition !== null
+  const isGathering = isPizzaParty || isDancing
 
-  const { shirtColor, skinTone, pantsColor, gender } = agent.appearance
+  useFrame((_state, delta) => {
+    if (!group.current || !rootGroup.current) return
+    const t = performance.now() / 1000
 
-  // Body proportions based on gender
-  const torsoWidth = gender === 'feminine' ? 0.26 : 0.3
-  const torsoHeight = gender === 'feminine' ? 0.38 : 0.4
-  const hipWidth = gender === 'feminine' ? 0.14 : 0.12
+    const target = isGathering ? partyTargetPosition : position
+    const root = rootGroup.current
+    const blend = Math.min(1, delta * (isGathering ? 4.2 : 7))
+    root.position.x += (target[0] - root.position.x) * blend
+    root.position.z += (target[2] - root.position.z) * blend
+    root.position.y += (target[1] - root.position.y) * blend
 
-  const charPos = useMemo((): [number, number, number] => {
-    return [position[0], position[1], position[2] + 0.7]
-  }, [position])
-  const baseFacingY = facingY ?? Math.PI
-
-  useFrame((state, delta) => {
-    const t = state.clock.elapsedTime
-    if (!groupRef.current || !headRef.current) return
-
-    const head = headRef.current
-    const leftArm = leftArmRef.current
-    const rightArm = rightArmRef.current
-    const body = bodyRef.current
-
-    if (partySeatPosition && agent.activeCelebration === 'pizza_party') {
-      const targetX = partySeatPosition[0]
-      const targetY = partySeatPosition[1]
-      const targetZ = partySeatPosition[2]
-
-      const current = groupRef.current.position
-      const dx = targetX - current.x
-      const dz = targetZ - current.z
-      const dist = Math.hypot(dx, dz)
-      const blend = Math.min(1, delta * 4.8)
-      current.x += dx * blend
-      current.z += dz * blend
-      current.y += (targetY - current.y) * blend
-      current.y = targetY + 0.02 + Math.abs(Math.sin(t * 8)) * 0.03 * Math.min(1, dist * 2.3)
-
-      const lookYaw = dist > 0.1
-        ? Math.atan2(dx, dz)
-        : partyLookAtPosition
-          ? Math.atan2(
-            partyLookAtPosition[0] - current.x,
-            partyLookAtPosition[2] - current.z
-          )
-          : baseFacingY
-      groupRef.current.rotation.y = lookYaw
-
-      head.rotation.z = Math.sin(t * 4.5) * 0.06
-      if (leftArm) leftArm.rotation.x = -0.5 + Math.sin(t * 5.2) * 0.25
-      if (rightArm) rightArm.rotation.x = -0.5 + Math.cos(t * 5.2) * 0.25
-      if (body) body.rotation.x = -0.05
-      return
+    if (isGathering && partyLookAtPosition) {
+      const yaw = Math.atan2(
+        partyLookAtPosition[0] - root.position.x,
+        partyLookAtPosition[2] - root.position.z
+      )
+      root.rotation.y += (yaw - root.rotation.y) * Math.min(1, delta * 5)
+    } else {
+      root.rotation.y += (rotation[1] - root.rotation.y) * Math.min(1, delta * 8)
+      root.rotation.x = rotation[0]
+      root.rotation.z = rotation[2]
     }
 
-    if (partySeatPosition && agent.activeCelebration === 'dance_party') {
-      const targetX = partySeatPosition[0]
-      const targetY = partySeatPosition[1]
-      const targetZ = partySeatPosition[2]
+    // Reset position to prevent drift between status changes
+    group.current.position.x = 0
+    group.current.position.y = 0
 
-      const current = groupRef.current.position
-      const dx = targetX - current.x
-      const dz = targetZ - current.z
-      const blend = Math.min(1, delta * 4.2)
-      current.x += dx * blend
-      current.z += dz * blend
-      current.y += (targetY - current.y) * blend
+    const head = group.current.children[0] // head group
+    const leftArm = group.current.children[3]
+    const rightArm = group.current.children[4]
+    if (!head || !leftArm || !rightArm) return
 
-      if (partyLookAtPosition) {
-        const yaw = Math.atan2(
-          partyLookAtPosition[0] - current.x,
-          partyLookAtPosition[2] - current.z
-        )
-        groupRef.current.rotation.y = yaw
-      }
+    // Reset
+    head.rotation.x = 0
+    head.rotation.y = 0
+    leftArm.rotation.x = 0
+    rightArm.rotation.x = 0
 
-      current.y += Math.abs(Math.sin(t * 6)) * 0.15
-      groupRef.current.rotation.y += Math.sin(t * 3) * 0.4
+    if (isDancing) {
+      group.current.position.y = Math.abs(Math.sin(t * 6)) * 0.15
+      group.current.rotation.y = Math.sin(t * 3) * 0.4
       head.rotation.z = Math.sin(t * 4) * 0.3
-      if (leftArm) leftArm.rotation.x = Math.sin(t * 6) * 1.2 - 1.5
-      if (rightArm) rightArm.rotation.x = Math.sin(t * 6 + Math.PI) * 1.2 - 1.5
-      if (body) body.rotation.x = 0
+      leftArm.rotation.x = Math.sin(t * 6) * 1.2 - 1.5
+      rightArm.rotation.x = Math.sin(t * 6 + Math.PI) * 1.2 - 1.5
       return
     }
 
-    switch (agent.status) {
-      case 'idle': {
-        groupRef.current.position.y = charPos[1] + Math.sin(t * 1.5) * 0.02
-        head.rotation.z = Math.sin(t * 0.8) * 0.05
-        if (leftArm) leftArm.rotation.x = 0
-        if (rightArm) rightArm.rotation.x = 0
-        if (body) body.rotation.x = 0
-        groupRef.current.rotation.y = baseFacingY + Math.sin(t * 0.3) * 0.1
+    switch (status) {
+      case 'thinking':
+        head.rotation.y = Math.sin(t * 0.8) * 0.3
+        head.rotation.x = Math.sin(t * 0.5) * 0.1
+        group.current.position.y = Math.sin(t * 2) * 0.03
         break
-      }
-      case 'thinking': {
-        groupRef.current.position.y = charPos[1] + 0.15 + Math.abs(Math.sin(t * 3)) * 0.05
-        groupRef.current.position.x = charPos[0] + Math.sin(t * 1.2) * 0.3
-        groupRef.current.position.z = charPos[2] + Math.cos(t * 1.2) * 0.2
-        head.rotation.z = Math.sin(t * 2) * 0.1
-        if (leftArm) leftArm.rotation.x = -0.3 + Math.sin(t * 3) * 0.2
-        if (rightArm) rightArm.rotation.x = -0.3 + Math.cos(t * 3) * 0.2
-        if (body) body.rotation.x = 0
-        groupRef.current.rotation.y = baseFacingY + Math.sin(t * 0.9) * 0.08
+      case 'streaming':
+        leftArm.rotation.x = Math.sin(t * 10) * 0.12 - 1.2
+        rightArm.rotation.x = Math.sin(t * 10 + 1) * 0.12 - 1.2
+        head.rotation.x = -0.1
         break
-      }
-      case 'streaming': {
-        groupRef.current.position.y = charPos[1]
-        groupRef.current.position.x = charPos[0]
-        groupRef.current.position.z = charPos[2]
-        groupRef.current.rotation.y = baseFacingY
-        head.rotation.z = Math.sin(t * 4) * 0.03
-        if (leftArm) leftArm.rotation.x = -0.8 + Math.sin(t * 12) * 0.15
-        if (rightArm) rightArm.rotation.x = -0.8 + Math.cos(t * 12) * 0.15
-        if (body) body.rotation.x = -0.1
+      case 'tool_calling':
+        rightArm.rotation.x = Math.sin(t * 4) * 0.1 - 1.0
+        head.rotation.x = -0.15
         break
-      }
-      case 'tool_calling': {
-        const cycle = (t * 0.8) % (Math.PI * 2)
-        groupRef.current.position.y = charPos[1] + 0.1 + Math.abs(Math.sin(t * 4)) * 0.03
-        groupRef.current.position.x = charPos[0] + Math.sin(cycle) * 0.6
-        groupRef.current.position.z = charPos[2] - 0.3
-        groupRef.current.rotation.y = baseFacingY + Math.sin(cycle) * 0.5
-        if (leftArm) leftArm.rotation.x = Math.sin(t * 4) * 0.4
-        if (rightArm) rightArm.rotation.x = Math.cos(t * 4) * 0.4
-        if (body) body.rotation.x = 0
+      case 'error':
+        group.current.position.x = Math.sin(t * 20) * 0.02
+        leftArm.rotation.x = -0.8
+        rightArm.rotation.x = -0.8
         break
-      }
-      case 'waiting': {
-        groupRef.current.position.y = charPos[1] - 0.02
-        groupRef.current.position.x = charPos[0]
-        groupRef.current.position.z = charPos[2]
-        groupRef.current.rotation.y = baseFacingY
-        head.rotation.z = Math.sin(t * 0.5) * 0.08
-        if (leftArm) leftArm.rotation.x = 0
-        if (rightArm) rightArm.rotation.x = -0.6 + Math.sin(t * 6) * 0.08
-        if (body) body.rotation.x = 0.1
+      case 'done':
+        leftArm.rotation.x = -2.5
+        rightArm.rotation.x = -2.5
+        group.current.position.y = Math.abs(Math.sin(t * 3)) * 0.05
         break
-      }
-      case 'error': {
-        groupRef.current.position.y = charPos[1] + 0.05 + Math.sin(t * 8) * 0.02
-        groupRef.current.position.x = charPos[0]
-        groupRef.current.position.z = charPos[2]
-        groupRef.current.rotation.y = baseFacingY + Math.sin(t * 10) * 0.08
-        head.rotation.z = Math.sin(t * 6) * 0.15
-        if (leftArm) leftArm.rotation.x = -2.5 + Math.sin(t * 8) * 0.2
-        if (rightArm) rightArm.rotation.x = -2.5 + Math.cos(t * 8) * 0.2
-        if (body) body.rotation.x = 0
+      default:
+        group.current.position.y = Math.sin(t * 1.5) * 0.01
         break
-      }
-      case 'done': {
-        groupRef.current.position.y = charPos[1]
-        groupRef.current.position.x = charPos[0]
-        groupRef.current.position.z = charPos[2]
-        groupRef.current.rotation.y = baseFacingY
-        head.rotation.z = 0
-        if (leftArm) leftArm.rotation.x = -2.8
-        if (rightArm) rightArm.rotation.x = -2.8
-        if (body) body.rotation.x = 0.25
-        break
-      }
     }
   })
 
   return (
-    <>
-      <group
-        ref={groupRef}
-        position={charPos}
-        onClick={(e) => {
-          e.stopPropagation()
-          selectAgent(agent.id)
-        }}
-      >
-        {/* Body */}
-        <group ref={bodyRef}>
-          {/* Torso */}
-          <mesh position={[0, 0.75, 0]} castShadow>
-            <boxGeometry args={[torsoWidth, torsoHeight, 0.25]} />
-            <meshStandardMaterial color={shirtColor} />
+    <group ref={rootGroup} position={position} rotation={rotation}>
+      <group ref={group}>
+        {/* Head */}
+        <group position={[0, 1.6, 0]}>
+          <mesh castShadow>
+            <boxGeometry args={[0.6, 0.6, 0.6]} />
+            <meshStandardMaterial color={appearance.skinTone} />
           </mesh>
-
-          {/* Head */}
-          <group ref={headRef} position={[0, 1.2, 0]}>
-            <mesh castShadow>
-              <boxGeometry args={[0.4, 0.4, 0.35]} />
-              <meshStandardMaterial color={skinTone} />
-            </mesh>
-
-            {/* Hair */}
-            <Hair appearance={agent.appearance} />
-
-            {/* Eyes */}
-            <mesh position={[-0.1, 0.04, 0.18]}>
-              <boxGeometry args={[0.07, 0.07, 0.02]} />
-              <meshStandardMaterial color="#222" />
-            </mesh>
-            <mesh position={[0.1, 0.04, 0.18]}>
-              <boxGeometry args={[0.07, 0.07, 0.02]} />
-              <meshStandardMaterial color="#222" />
-            </mesh>
-
-            {/* Mouth */}
-            {agent.status === 'error' ? (
-              <mesh position={[0, -0.1, 0.18]}>
-                <boxGeometry args={[0.12, 0.03, 0.02]} />
-                <meshStandardMaterial color="#c0392b" />
-              </mesh>
-            ) : agent.status === 'done' ? (
-              <mesh position={[0, -0.1, 0.18]}>
-                <boxGeometry args={[0.15, 0.03, 0.02]} />
-                <meshStandardMaterial color="#e74c3c" />
-              </mesh>
-            ) : null}
-          </group>
-
-          {/* Left Arm */}
-          <group ref={leftArmRef} position={[-(torsoWidth / 2 + 0.06), 0.85, 0]}>
-            {/* Sleeve */}
-            <mesh position={[0, -0.1, 0]} castShadow>
-              <boxGeometry args={[0.1, 0.18, 0.1]} />
-              <meshStandardMaterial color={shirtColor} />
-            </mesh>
-            {/* Forearm (skin) */}
-            <mesh position={[0, -0.28, 0]} castShadow>
-              <boxGeometry args={[0.09, 0.18, 0.09]} />
-              <meshStandardMaterial color={skinTone} />
-            </mesh>
-          </group>
-
-          {/* Right Arm */}
-          <group ref={rightArmRef} position={[torsoWidth / 2 + 0.06, 0.85, 0]}>
-            {/* Sleeve */}
-            <mesh position={[0, -0.1, 0]} castShadow>
-              <boxGeometry args={[0.1, 0.18, 0.1]} />
-              <meshStandardMaterial color={shirtColor} />
-            </mesh>
-            {/* Forearm (skin) */}
-            <mesh position={[0, -0.28, 0]} castShadow>
-              <boxGeometry args={[0.09, 0.18, 0.09]} />
-              <meshStandardMaterial color={skinTone} />
-            </mesh>
-          </group>
-
-          {/* Left Leg */}
-          <mesh position={[-0.08, 0.38, 0]} castShadow>
-            <boxGeometry args={[hipWidth, 0.35, 0.12]} />
-            <meshStandardMaterial color={pantsColor} />
+          {/* Eyes */}
+          <mesh position={[-0.14, 0.03, 0.31]}>
+            <boxGeometry args={[0.1, 0.1, 0.02]} />
+            <meshStandardMaterial
+              color={glow}
+              emissive={glow}
+              emissiveIntensity={0.6}
+            />
           </mesh>
-
-          {/* Right Leg */}
-          <mesh position={[0.08, 0.38, 0]} castShadow>
-            <boxGeometry args={[hipWidth, 0.35, 0.12]} />
-            <meshStandardMaterial color={pantsColor} />
+          <mesh position={[0.14, 0.03, 0.31]}>
+            <boxGeometry args={[0.1, 0.1, 0.02]} />
+            <meshStandardMaterial
+              color={glow}
+              emissive={glow}
+              emissiveIntensity={0.6}
+            />
           </mesh>
-
-          {/* Shoes */}
-          <mesh position={[-0.08, 0.19, 0.03]} castShadow>
-            <boxGeometry args={[hipWidth + 0.01, 0.06, 0.15]} />
-            <meshStandardMaterial color="#1a1a2e" />
+          {/* Mouth */}
+          <mesh position={[0, -0.12, 0.31]}>
+            <boxGeometry args={[0.16, 0.04, 0.02]} />
+            <meshStandardMaterial color="#8B5E3C" />
           </mesh>
-          <mesh position={[0.08, 0.19, 0.03]} castShadow>
-            <boxGeometry args={[hipWidth + 0.01, 0.06, 0.15]} />
-            <meshStandardMaterial color="#1a1a2e" />
+          {/* Hair */}
+          <mesh position={[0, 0.28, -0.04]} castShadow>
+            <boxGeometry
+              args={
+                appearance.hairStyle === 'mohawk'
+                  ? [0.2, 0.35, 0.6]
+                  : appearance.hairStyle === 'long'
+                    ? [0.65, 0.2, 0.7]
+                    : appearance.hairStyle === 'ponytail'
+                      ? [0.65, 0.15, 0.7]
+                      : [0.65, 0.15, 0.65]
+              }
+            />
+            <meshStandardMaterial color={appearance.hairColor} />
           </mesh>
         </group>
 
-        {/* Status glow */}
-        {agent.status === 'done' && (
-          <pointLight position={[0, 1.5, 0]} color="#4ade80" intensity={0.5} distance={2} />
-        )}
-        {agent.status === 'error' && (
-          <pointLight position={[0, 1.5, 0]} color="#ef4444" intensity={0.8} distance={2.5} />
-        )}
+        {/* Body */}
+        <mesh position={[0, 0.9, 0]} castShadow>
+          <boxGeometry args={[0.6, 0.8, 0.4]} />
+          <meshStandardMaterial color={appearance.shirtColor} />
+        </mesh>
+
+        {/* Legs */}
+        <mesh position={[-0.15, 0.3, 0]} castShadow>
+          <boxGeometry args={[0.25, 0.5, 0.25]} />
+          <meshStandardMaterial color={appearance.pantsColor} />
+        </mesh>
+        <mesh position={[0.15, 0.3, 0]} castShadow>
+          <boxGeometry args={[0.25, 0.5, 0.25]} />
+          <meshStandardMaterial color={appearance.pantsColor} />
+        </mesh>
+
+        {/* Left Arm */}
+        <group position={[-0.42, 1.05, 0]}>
+          <mesh castShadow>
+            <boxGeometry args={[0.2, 0.65, 0.2]} />
+            <meshStandardMaterial color={appearance.shirtColor} />
+          </mesh>
+        </group>
+
+        {/* Right Arm */}
+        <group position={[0.42, 1.05, 0]}>
+          <mesh castShadow>
+            <boxGeometry args={[0.2, 0.65, 0.2]} />
+            <meshStandardMaterial color={appearance.shirtColor} />
+          </mesh>
+        </group>
+
+        {/* Status indicator — floating dot above head */}
+        <mesh position={[0, 2.15, 0]}>
+          <sphereGeometry args={[0.08, 8, 8]} />
+          <meshStandardMaterial
+            color={glow}
+            emissive={glow}
+            emissiveIntensity={1}
+          />
+        </mesh>
       </group>
 
-      {/* Effects rendered at desk position */}
-      {agent.status === 'thinking' && <ThoughtBubble position={[charPos[0], charPos[1] + 1.7, charPos[2]]} />}
-      {agent.status === 'error' && <DeskFire position={[position[0], position[1] + 0.8, position[2]]} />}
-      {agent.status === 'streaming' && <Papers position={[position[0], position[1] + 0.9, position[2]]} />}
-
-      {/* Celebration effects */}
-      {agent.activeCelebration === 'confetti' && (
-        <Confetti
-          position={[charPos[0], charPos[1] + 1.8, charPos[2]]}
-          onComplete={() => {
-            useAgentStore.getState().updateAgent(agent.id, {
-              activeCelebration: null,
-              celebrationStartedAt: null
-            })
-          }}
-        />
-      )}
-      {agent.activeCelebration === 'rocket' && (
-        <Rocket
-          position={[charPos[0], charPos[1] + 1.5, charPos[2]]}
-          onComplete={() => {
-            useAgentStore.getState().updateAgent(agent.id, {
-              activeCelebration: null,
-              celebrationStartedAt: null
-            })
-          }}
-        />
-      )}
-      {agent.activeCelebration === 'sparkles' && (
-        <Sparkles
-          position={[charPos[0], charPos[1] + 1.6, charPos[2]]}
-          onComplete={() => {
-            useAgentStore.getState().updateAgent(agent.id, {
-              activeCelebration: null,
-              celebrationStartedAt: null
-            })
-          }}
-        />
-      )}
-      {agent.activeCelebration === 'explosion' && (
-        <Explosion
-          position={[charPos[0], charPos[1] + 1.5, charPos[2]]}
-          onComplete={() => {
-            useAgentStore.getState().updateAgent(agent.id, {
-              activeCelebration: null,
-              celebrationStartedAt: null
-            })
-          }}
-        />
-      )}
-      {agent.activeCelebration === 'trophy' && (
-        <Trophy
-          position={[charPos[0], charPos[1], charPos[2]]}
-          onComplete={() => {
-            useAgentStore.getState().updateAgent(agent.id, {
-              activeCelebration: null,
-              celebrationStartedAt: null
-            })
-          }}
-        />
-      )}
-      {agent.activeCelebration === 'floppy_rain' && (
-        <FloppyRain
-          position={[charPos[0], charPos[1], charPos[2]]}
-          onComplete={() => {
-            useAgentStore.getState().updateAgent(agent.id, {
-              activeCelebration: null,
-              celebrationStartedAt: null
-            })
-          }}
-        />
-      )}
-      {agent.activeCelebration === 'dialup_wave' && (
-        <DialupWave
-          position={[charPos[0], charPos[1], charPos[2]]}
-          onComplete={() => {
-            useAgentStore.getState().updateAgent(agent.id, {
-              activeCelebration: null,
-              celebrationStartedAt: null
-            })
-          }}
-        />
-      )}
-      {agent.activeCelebration === 'fax_blast' && (
-        <FaxBlast
-          position={[charPos[0], charPos[1], charPos[2]]}
-          onComplete={() => {
-            useAgentStore.getState().updateAgent(agent.id, {
-              activeCelebration: null,
-              celebrationStartedAt: null
-            })
-          }}
-        />
-      )}
-
-      {/* Persistent office plants from commits (max 5) */}
-      {Array.from({ length: Math.min(agent.commitCount, 5) }, (_, i) => (
-        <OfficePlant
-          key={`plant-${agent.id}-${i}`}
-          position={[position[0], position[1] + 0.8, position[2]]}
-          index={i}
-        />
-      ))}
-    </>
+      {/* Name + status label */}
+      <Html position={[0, 2.4, 0]} center distanceFactor={10} zIndexRange={[0, 0]}>
+        <div className="pointer-events-none select-none text-center whitespace-nowrap">
+          <div className="text-xs font-bold text-white drop-shadow-lg">
+            {agent.name}
+          </div>
+          <div className="text-[10px] text-white/70">
+            {STATUS_LABELS[status]}
+          </div>
+        </div>
+      </Html>
+    </group>
   )
 }
