@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useCallback, useRef } from 'react'
 import { useFrame, extend } from '@react-three/fiber'
 import { shaderMaterial } from '@react-three/drei'
 import type {
@@ -85,7 +85,6 @@ const GradientSkyMaterial = shaderMaterial(
     uSunGlowColor: new Color('#FFD080'),
     uSunGlowIntensity: 0.0,
   },
-  // Vertex shader
   `
     varying vec3 vWorldDir;
     void main() {
@@ -94,7 +93,6 @@ const GradientSkyMaterial = shaderMaterial(
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
   `,
-  // Fragment shader
   `
     uniform vec3 uZenithColor;
     uniform vec3 uHorizonColor;
@@ -108,18 +106,14 @@ const GradientSkyMaterial = shaderMaterial(
       vec3 dir = normalize(vWorldDir);
       float y = dir.y;
 
-      // Upper sky: horizon → zenith
       float upperBlend = smoothstep(0.0, 0.55, y);
       vec3 upper = mix(uHorizonColor, uZenithColor, upperBlend);
 
-      // Lower sky: ground reflection → horizon
       float lowerBlend = smoothstep(-0.35, 0.0, y);
       vec3 lower = mix(uGroundColor, uHorizonColor, lowerBlend);
 
-      // Combine upper and lower
       vec3 skyColor = y >= 0.0 ? upper : lower;
 
-      // Sun glow halo
       float sunDot = max(dot(dir, uSunDirection), 0.0);
       float glow = pow(sunDot, 8.0) * uSunGlowIntensity;
       skyColor += uSunGlowColor * glow;
@@ -131,14 +125,17 @@ const GradientSkyMaterial = shaderMaterial(
 
 extend({ GradientSkyMaterial })
 
-// Augment JSX for the custom material
 declare module '@react-three/fiber' {
   interface ThreeElements {
     gradientSkyMaterial: ThreeElements['shaderMaterial']
   }
 }
 
-export function Lighting() {
+interface LightingProps {
+  daylightRef: React.MutableRefObject<number>
+}
+
+export function Lighting({ daylightRef }: LightingProps) {
   const skyMaterialRef = useRef<ShaderMaterial>(null)
   const sunMaterialRef = useRef<MeshStandardMaterial>(null)
   const moonMaterialRef = useRef<MeshStandardMaterial>(null)
@@ -147,13 +144,8 @@ export function Lighting() {
   const moonLightRef = useRef<DirectionalLight>(null)
   const indoorFillARef = useRef<PointLight>(null)
   const indoorFillBRef = useRef<PointLight>(null)
-  const indoorFillCRef = useRef<PointLight>(null)
-  const indoorFillDRef = useRef<PointLight>(null)
   const sunOrbRef = useRef<Object3D>(null)
   const moonOrbRef = useRef<Object3D>(null)
-
-  // Current daylight for child components (StarField)
-  const daylightRef = useRef(1)
   const fogRef = useRef<FogExp2 | null>(null)
 
   useFrame(({ clock, scene: frameScene }) => {
@@ -162,13 +154,12 @@ export function Lighting() {
     daylightRef.current = daylight
     const golden = computeGoldenHourFactor(daylight)
 
-    // Lazy fog initialization (avoids mutating useThree() return)
+    // Lazy fog initialization
     if (!fogRef.current) {
       fogRef.current = new FogExp2(FOG_DAY_COLOR.getHex(), FOG_DENSITY_DAY)
       frameScene.fog = fogRef.current
     }
 
-    // --- Celestial orb positions ---
     if (sunOrbRef.current) {
       sunOrbRef.current.position.set(sunPosition[0], sunPosition[1], sunPosition[2])
     }
@@ -176,10 +167,9 @@ export function Lighting() {
       moonOrbRef.current.position.set(moonPosition[0], moonPosition[1], moonPosition[2])
     }
 
-    // --- Sun / Moon lights ---
     if (sunLightRef.current) {
       sunLightRef.current.position.set(sunPosition[0], sunPosition[1], sunPosition[2])
-      sunLightRef.current.intensity = MathUtils.lerp(0.05, 1.15, daylight)
+      sunLightRef.current.intensity = MathUtils.lerp(0.05, 1.2, daylight)
       sunLightRef.current.color.setRGB(
         MathUtils.lerp(0.55, 1, daylight),
         MathUtils.lerp(0.62, 0.98, daylight),
@@ -191,7 +181,6 @@ export function Lighting() {
       moonLightRef.current.intensity = MathUtils.lerp(0.08, 0.5, moonlight)
     }
 
-    // --- Ambient light ---
     if (ambientLightRef.current) {
       ambientLightRef.current.intensity = MathUtils.lerp(0.28, 0.58, daylight)
       ambientLightRef.current.color.setRGB(
@@ -201,35 +190,29 @@ export function Lighting() {
       )
     }
 
-    // --- Gradient sky shader uniforms ---
     if (skyMaterialRef.current) {
       const mat = skyMaterialRef.current
 
-      // Zenith: night → day
       _zenith.copy(SKY_ZENITH_NIGHT).lerp(SKY_ZENITH_DAY, daylight)
       mat.uniforms.uZenithColor.value.copy(_zenith)
 
-      // Horizon: night → day, with golden hour warmth blended in
       _horizon.copy(SKY_HORIZON_NIGHT).lerp(SKY_HORIZON_DAY, daylight)
       if (golden > 0) {
         _horizon.lerp(SKY_HORIZON_GOLDEN, golden * 0.7)
       }
       mat.uniforms.uHorizonColor.value.copy(_horizon)
 
-      // Ground reflection
       _ground.copy(SKY_GROUND_NIGHT).lerp(SKY_GROUND_DAY, daylight)
       mat.uniforms.uGroundColor.value.copy(_ground)
 
       frameScene.background = _horizon
 
-      // Sun direction for glow
       _sunDir.set(sunPosition[0], sunPosition[1], sunPosition[2]).normalize()
       mat.uniforms.uSunDirection.value.copy(_sunDir)
       mat.uniforms.uSunGlowIntensity.value = daylight * 0.6 + golden * 0.4
       mat.uniforms.uSunGlowColor.value.copy(SUN_GLOW_COLOR)
     }
 
-    // --- Orb material emissive ---
     if (sunMaterialRef.current) {
       sunMaterialRef.current.emissiveIntensity = MathUtils.lerp(0.22, 1.35, daylight)
     }
@@ -237,13 +220,9 @@ export function Lighting() {
       moonMaterialRef.current.emissiveIntensity = MathUtils.lerp(0.06, 0.7, moonlight)
     }
 
-    // --- Indoor fill lights ---
     if (indoorFillARef.current) indoorFillARef.current.intensity = MathUtils.lerp(0.6, 0.18, daylight)
     if (indoorFillBRef.current) indoorFillBRef.current.intensity = MathUtils.lerp(0.55, 0.18, daylight)
-    if (indoorFillCRef.current) indoorFillCRef.current.intensity = MathUtils.lerp(0.1, 0.36, moonlight)
-    if (indoorFillDRef.current) indoorFillDRef.current.intensity = MathUtils.lerp(0.1, 0.32, moonlight)
 
-    // --- Fog ---
     if (fogRef.current) {
       fogRef.current.density = MathUtils.lerp(FOG_DENSITY_NIGHT, FOG_DENSITY_DAY, daylight)
       _fogColor.copy(FOG_NIGHT_COLOR).lerp(FOG_DAY_COLOR, daylight)
@@ -253,7 +232,6 @@ export function Lighting() {
       fogRef.current.color.copy(_fogColor)
     }
 
-    // --- Window tint ---
     const windowMats = getWindowGlassMaterials()
     if (windowMats.length > 0) {
       _windowColor.copy(WINDOW_NIGHT_COLOR).lerp(WINDOW_DAY_COLOR, daylight)
@@ -263,7 +241,6 @@ export function Lighting() {
         WINDOW_DAY_EMISSIVE_INTENSITY,
         daylight
       )
-      // Subtle night flicker
       if (daylight < 0.3) {
         emissiveIntensity += Math.sin(t * 3.5) * 0.08 * (1 - daylight / 0.3)
       }
@@ -275,6 +252,9 @@ export function Lighting() {
     }
   })
 
+  const sunVisibilityFn = useCallback(() => daylightRef.current ?? 1, [daylightRef])
+  const moonVisibilityFn = useCallback(() => 1 - (daylightRef.current ?? 1), [daylightRef])
+
   return (
     <>
       {/* Gradient sky dome */}
@@ -283,8 +263,7 @@ export function Lighting() {
         <gradientSkyMaterial ref={skyMaterialRef} side={BackSide} />
       </mesh>
 
-      {/* Star field */}
-      <StarField daylight={daylightRef.current} />
+      <StarField daylightRef={daylightRef} />
 
       {/* Sun orb + glow */}
       <mesh ref={sunOrbRef} position={[0, 10, CELESTIAL_ORBIT_CENTER_Z]}>
@@ -299,7 +278,7 @@ export function Lighting() {
       <CelestialGlow
         targetRef={sunOrbRef}
         color="#FFD080"
-        visibility={daylightRef.current}
+        visibilityFn={sunVisibilityFn}
         outerScale={4.5}
         innerScale={2.2}
       />
@@ -317,7 +296,7 @@ export function Lighting() {
       <CelestialGlow
         targetRef={moonOrbRef}
         color="#8AB4E8"
-        visibility={1 - daylightRef.current}
+        visibilityFn={moonVisibilityFn}
         outerScale={3.0}
         innerScale={1.5}
       />
@@ -345,11 +324,8 @@ export function Lighting() {
         color="#93C5FD"
       />
 
-      {/* Interior fixtures get brighter at night */}
       <pointLight ref={indoorFillARef} position={[-4, 3, -4]} intensity={0.3} color="#FFE4B5" />
       <pointLight ref={indoorFillBRef} position={[4, 3, -9]} intensity={0.3} color="#FFE4B5" />
-      <pointLight ref={indoorFillCRef} position={[-2, 4.5, -2]} intensity={0.2} color="#f0f0ff" distance={10} />
-      <pointLight ref={indoorFillDRef} position={[2, 4.5, 2]} intensity={0.2} color="#f0f0ff" distance={10} />
     </>
   )
 }
