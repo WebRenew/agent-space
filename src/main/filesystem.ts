@@ -116,8 +116,21 @@ function decodeDataUrlPayload(dataUrl: string): { mimeType: string; bytes: Buffe
 
   const mimeType = match[1]
   const base64Payload = match[2]
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64Payload)) {
+    throw new Error('Invalid base64 payload')
+  }
+  const payloadRemainder = base64Payload.length % 4
+  if (payloadRemainder === 1 || (base64Payload.includes('=') && payloadRemainder !== 0)) {
+    throw new Error('Invalid base64 payload')
+  }
+
   const bytes = Buffer.from(base64Payload, 'base64')
   if (bytes.length === 0 && base64Payload.length > 0) {
+    throw new Error('Invalid base64 payload')
+  }
+  const normalizedInput = base64Payload.replace(/=+$/, '')
+  const normalizedDecoded = bytes.toString('base64').replace(/=+$/, '')
+  if (normalizedInput !== normalizedDecoded) {
     throw new Error('Invalid base64 payload')
   }
 
@@ -129,6 +142,28 @@ export function __testOnlyDecodeDataUrlPayload(dataUrl: string): { mimeType: str
   return {
     mimeType: decoded.mimeType,
     size: decoded.bytes.length,
+  }
+}
+
+function validateRenameTarget(newName: string): string {
+  if (typeof newName !== 'string' || newName.trim().length === 0) {
+    throw new Error('Invalid filename: name is required')
+  }
+  if (newName === '.' || newName === '..') {
+    throw new Error('Invalid filename: relative path segments are not allowed')
+  }
+  if (newName.includes('/') || newName.includes('\\') || newName.includes('\0')) {
+    throw new Error('Invalid filename: must not contain path separators')
+  }
+  return newName
+}
+
+export function __testOnlyIsRenameTargetValid(newName: string): boolean {
+  try {
+    validateRenameTarget(newName)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -275,12 +310,10 @@ export function setupFilesystemHandlers(mainWindow?: BrowserWindow): void {
   })
 
   handleFilesystemIpc('fs:rename', 'rename', async (_event, oldPath: string, newName: string) => {
-    if (newName.includes('/') || newName.includes('\\') || newName.includes('\0')) {
-      throw new Error('Invalid filename: must not contain path separators')
-    }
+    const safeNewName = validateRenameTarget(newName)
     const resolved = path.resolve(oldPath)
     const dir = path.dirname(resolved)
-    const newPath = path.join(dir, newName)
+    const newPath = path.join(dir, safeNewName)
     await fs.promises.rename(resolved, newPath)
     invalidateSearchIndexForPath(resolved)
     invalidateSearchIndexForPath(newPath)

@@ -29,7 +29,9 @@ function getAppVersion(): string {
 }
 
 function parseSemverTriplet(version: string): [number, number, number] | null {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)/i.exec(version.trim())
+  const match = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$/i.exec(
+    version.trim()
+  )
   if (!match) return null
 
   const major = Number.parseInt(match[1] ?? '', 10)

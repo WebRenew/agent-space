@@ -19,6 +19,12 @@ test('semver comparison tolerates prerelease/build suffixes', () => {
   expect(__testOnlyCompareSemver('1.2.4-rc.1', '1.2.3')).toBeGreaterThan(0)
 })
 
+test('semver comparison rejects malformed suffixes that are not valid prerelease/build metadata', () => {
+  expect(__testOnlyCompareSemver('1.2.4rc1', '1.2.3')).toBe(0)
+  expect(__testOnlyCompareSemver('1.2.3foo', '1.2.3')).toBe(0)
+  expect(__testOnlyIsUpdateAvailable('1.2.3', '1.2.4rc1')).toBe(false)
+})
+
 test('update availability is true only when latest is newer than current', () => {
   expect(__testOnlyIsUpdateAvailable('1.1.0', '1.1.1')).toBe(true)
   expect(__testOnlyIsUpdateAvailable('1.2.0', '1.2.0')).toBe(false)

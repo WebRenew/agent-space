@@ -10,4 +10,6 @@ test('data-url decoder extracts mime type and byte size', () => {
 test('data-url decoder rejects malformed payloads', () => {
   expect(() => __testOnlyDecodeDataUrlPayload('not-a-data-url')).toThrow('Invalid data URL payload')
   expect(() => __testOnlyDecodeDataUrlPayload('data:image/png;base64,***')).toThrow('Invalid data URL payload')
+  expect(() => __testOnlyDecodeDataUrlPayload('data:image/png;base64,AAAAA')).toThrow('Invalid base64 payload')
+  expect(() => __testOnlyDecodeDataUrlPayload('data:image/png;base64,AQ=')).toThrow('Invalid base64 payload')
 })

@@ -43,6 +43,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Assistant chat messages now render inline bold markdown and clickable
   HTTP(S) links directly in the desktop chat pane.
 
+### Fixed
+
+- Hardened desktop update semver parsing so malformed tags (for example
+  `1.2.4rc1`) are ignored instead of being treated as valid upgrade versions.
+- Tightened data-URL base64 validation to reject malformed payloads before
+  writing binary preview/save content.
+- Blocked unsafe filesystem rename targets (`.`, `..`, and empty names) to
+  prevent accidental path traversal behavior.
+- Raised dependency override for `minimatch` to `>=10.2.3` to satisfy
+  high-severity audit checks in CI.
+
 ## [1.1.0] - 2026-02-15
 
 ### Added
