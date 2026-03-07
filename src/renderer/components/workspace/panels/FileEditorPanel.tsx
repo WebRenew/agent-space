@@ -428,6 +428,13 @@ export function FileEditorPanel() {
   const lspLang = isTextFile ? lang : 'plaintext'
   const { notifyChange } = useLspBridge(lspPath, lspLang, monacoRef, editorRef)
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('file:preview-ready'))
+    return () => {
+      window.dispatchEvent(new CustomEvent('file:preview-disposed'))
+    }
+  }, [])
+
   const applyProposalToCurrentFile = useCallback((proposal: FileUpdateProposal) => {
     setContent(proposal.content)
     setIsDirty(proposal.content !== savedContentRef.current)
