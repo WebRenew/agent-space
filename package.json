@@ -1,6 +1,6 @@
 {
   "name": "agent-observer",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "description": "Agent Office — 3D observability for AI agents",
   "main": "./out/main/index.js",
   "scripts": {
@@ -120,23 +120,23 @@
       "title": "Agent Observer",
       "icon": "resources/icon.icns",
       "background": "resources/dmg-background.png",
-      "iconSize": 140,
-      "iconTextSize": 18,
+      "iconSize": 132,
+      "iconTextSize": 16,
       "contents": [
         {
-          "x": 180,
-          "y": 210
+          "x": 230,
+          "y": 290
         },
         {
-          "x": 460,
-          "y": 210,
+          "x": 690,
+          "y": 290,
           "type": "link",
           "path": "/Applications"
         }
       ],
       "window": {
-        "width": 660,
-        "height": 430
+        "width": 920,
+        "height": 560
       }
     },
     "directories": {
