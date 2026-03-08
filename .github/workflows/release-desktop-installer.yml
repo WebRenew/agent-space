@@ -42,15 +42,21 @@ jobs:
           sparse-checkout: resources
           sparse-checkout-cone-mode: true
 
-      - name: Ensure icon exists
+      - name: Ensure installer assets exist
         run: |
-          # New tags use resources/icon.icns; old tags use build/icon.icns
+          # New tags use resources/icon.icns; old tags may use build/icon.icns.
           ICON_SRC="__main/resources/icon.icns"
           if [ ! -f "$ICON_SRC" ]; then
             echo "::error::resources/icon.icns not found on main"
             exit 1
           fi
-          # Place icon where this tag's electron-builder config expects it
+          BG_SRC="__main/resources/dmg-background.png"
+          if [ ! -f "$BG_SRC" ]; then
+            echo "::error::resources/dmg-background.png not found on main"
+            exit 1
+          fi
+
+          # Place assets where this tag's electron-builder config expects them.
           CONFIGURED_ICON=$(node -p "try{require('./package.json').build.mac.icon}catch{''}")
           if [ -z "$CONFIGURED_ICON" ]; then
             CONFIGURED_ICON="resources/icon.icns"
@@ -58,6 +64,14 @@ jobs:
           mkdir -p "$(dirname "$CONFIGURED_ICON")"
           cp "$ICON_SRC" "$CONFIGURED_ICON"
           echo "Placed icon at $CONFIGURED_ICON"
+
+          CONFIGURED_BG=$(node -p "try{require('./package.json').build.dmg.background}catch{''}")
+          if [ -z "$CONFIGURED_BG" ]; then
+            CONFIGURED_BG="resources/dmg-background.png"
+          fi
+          mkdir -p "$(dirname "$CONFIGURED_BG")"
+          cp "$BG_SRC" "$CONFIGURED_BG"
+          echo "Placed DMG background at $CONFIGURED_BG"
           rm -rf __main
 
       - name: Derive version from tag

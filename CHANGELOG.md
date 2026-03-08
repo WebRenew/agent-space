@@ -35,6 +35,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   `/download` now scans recent releases for the newest available `.dmg`.
 - Release automation now uploads `latest-mac.yml` and `.dmg.blockmap` metadata
   assets required by in-app auto-updates.
+- Desktop installer visuals now use a lighter, branded DMG composition and a
+  refreshed app icon instead of the older pixel-character packaging art.
 - Packaged builds now re-check for updates periodically after startup, and the
   in-app update banner appears as soon as an update is available/downloading.
 - Desktop 3D office now uses the full web-parity scene reskin modules and layout.
@@ -53,6 +55,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   prevent accidental path traversal behavior.
 - Raised dependency override for `minimatch` to `>=10.2.3` to satisfy
   high-severity audit checks in CI.
+- Release packaging now refreshes both the DMG background and app icon from
+  `main` when rebuilding installer assets for a published tag.
 
 ## [1.1.0] - 2026-02-15
 
