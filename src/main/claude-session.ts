@@ -375,7 +375,30 @@ async function waitForConversationSessionToExit(conversationId: string): Promise
   })
 
   await new Promise<void>((resolve) => {
-    blockingSession.process.once('exit', () => resolve())
+    let settled = false
+    const settle = () => {
+      if (settled) return
+      settled = true
+      blockingSession.process.off('exit', onExit)
+      blockingSession.process.off('close', onClose)
+      blockingSession.process.off('error', onError)
+      resolve()
+    }
+
+    const onExit = () => settle()
+    const onClose = () => settle()
+    const onError = () => settle()
+
+    blockingSession.process.once('exit', onExit)
+    blockingSession.process.once('close', onClose)
+    blockingSession.process.once('error', onError)
+
+    if (
+      blockingSession.process.exitCode !== null
+      || blockingSession.process.signalCode !== null
+    ) {
+      settle()
+    }
   })
 }
 
