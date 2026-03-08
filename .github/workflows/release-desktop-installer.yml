@@ -45,33 +45,40 @@ jobs:
       - name: Ensure installer assets exist
         run: |
           # New tags use resources/icon.icns; old tags may use build/icon.icns.
-          ICON_SRC="__main/resources/icon.icns"
-          if [ ! -f "$ICON_SRC" ]; then
-            echo "::error::resources/icon.icns not found on main"
-            exit 1
-          fi
-          BG_SRC="__main/resources/dmg-background.png"
-          if [ ! -f "$BG_SRC" ]; then
-            echo "::error::resources/dmg-background.png not found on main"
-            exit 1
-          fi
-
-          # Place assets where this tag's electron-builder config expects them.
           CONFIGURED_ICON=$(node -p "try{require('./package.json').build.mac.icon}catch{''}")
           if [ -z "$CONFIGURED_ICON" ]; then
             CONFIGURED_ICON="resources/icon.icns"
           fi
-          mkdir -p "$(dirname "$CONFIGURED_ICON")"
-          cp "$ICON_SRC" "$CONFIGURED_ICON"
-          echo "Placed icon at $CONFIGURED_ICON"
-
           CONFIGURED_BG=$(node -p "try{require('./package.json').build.dmg.background}catch{''}")
           if [ -z "$CONFIGURED_BG" ]; then
             CONFIGURED_BG="resources/dmg-background.png"
           fi
-          mkdir -p "$(dirname "$CONFIGURED_BG")"
-          cp "$BG_SRC" "$CONFIGURED_BG"
-          echo "Placed DMG background at $CONFIGURED_BG"
+
+          if [ -f "$CONFIGURED_ICON" ]; then
+            echo "Using icon from tag at $CONFIGURED_ICON"
+          else
+            ICON_SRC="__main/resources/icon.icns"
+            if [ ! -f "$ICON_SRC" ]; then
+              echo "::error::resources/icon.icns not found on main"
+              exit 1
+            fi
+            mkdir -p "$(dirname "$CONFIGURED_ICON")"
+            cp "$ICON_SRC" "$CONFIGURED_ICON"
+            echo "Backfilled icon from main at $CONFIGURED_ICON"
+          fi
+
+          if [ -f "$CONFIGURED_BG" ]; then
+            echo "Using DMG background from tag at $CONFIGURED_BG"
+          else
+            BG_SRC="__main/resources/dmg-background.png"
+            if [ ! -f "$BG_SRC" ]; then
+              echo "::error::resources/dmg-background.png not found on main"
+              exit 1
+            fi
+            mkdir -p "$(dirname "$CONFIGURED_BG")"
+            cp "$BG_SRC" "$CONFIGURED_BG"
+            echo "Backfilled DMG background from main at $CONFIGURED_BG"
+          fi
           rm -rf __main
 
       - name: Derive version from tag
