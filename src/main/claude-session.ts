@@ -31,6 +31,7 @@ interface ActiveSession {
   process: ChildProcess
   readline: ReadlineInterface
   sessionId: string
+  conversationId?: string
   ownerWebContentsId: number
   didEmitResult: boolean
   runtimeTimeout: NodeJS.Timeout | null
@@ -51,6 +52,7 @@ interface ClaudeAvailabilityResult {
 const activeSessions = new Map<string, ActiveSession>()
 const observerWebContentsIdsBySessionId = new Map<string, Set<number>>()
 const observedSessionIdsByWebContentsId = new Map<number, Set<string>>()
+const conversationStartLocks = new Map<string, Promise<void>>()
 let sessionCounter = 0
 
 const CLAUDE_SESSION_DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000
@@ -308,6 +310,75 @@ function isValidConversationId(value: string | undefined): value is string {
   return typeof value === 'string' && UUID_PATTERN.test(value)
 }
 
+interface ActiveConversationSessionLike {
+  sessionId: string
+  conversationId?: string
+  process: {
+    exitCode: number | null
+    signalCode: string | null
+  }
+}
+
+export function __testOnlyFindActiveConversationSessionId(
+  sessions: Iterable<ActiveConversationSessionLike>,
+  conversationId: string
+): string | null {
+  for (const session of sessions) {
+    if (session.conversationId !== conversationId) continue
+    if (session.process.exitCode !== null || session.process.signalCode !== null) continue
+    return session.sessionId
+  }
+  return null
+}
+
+async function withConversationStartLock<T>(
+  conversationId: string,
+  work: () => Promise<T>
+): Promise<T> {
+  while (conversationStartLocks.has(conversationId)) {
+    await conversationStartLocks.get(conversationId)
+  }
+
+  let release!: () => void
+  const lock = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  conversationStartLocks.set(conversationId, lock)
+
+  try {
+    return await work()
+  } finally {
+    conversationStartLocks.delete(conversationId)
+    release()
+  }
+}
+
+async function waitForConversationSessionToExit(conversationId: string): Promise<void> {
+  const blockingSessionId = __testOnlyFindActiveConversationSessionId(
+    activeSessions.values(),
+    conversationId
+  )
+  if (!blockingSessionId) return
+
+  const blockingSession = activeSessions.get(blockingSessionId)
+  if (!blockingSession) return
+  if (
+    blockingSession.process.exitCode !== null
+    || blockingSession.process.signalCode !== null
+  ) {
+    return
+  }
+
+  logMainEvent('claude.session.wait_for_conversation_release', {
+    conversationId,
+    blockingSessionId,
+  })
+
+  await new Promise<void>((resolve) => {
+    blockingSession.process.once('exit', () => resolve())
+  })
+}
+
 export function __testOnlyResolveClaudeEventTargetIds(
   ownerWebContentsId: number | null,
   observerWebContentsIds: number[]
@@ -538,7 +609,7 @@ function parseStreamLine(
 
 // ── Session Management ─────────────────────────────────────────────────
 
-function startSession(options: ClaudeSessionOptions, ownerWebContentsId: number): string {
+function startSessionInternal(options: ClaudeSessionOptions, ownerWebContentsId: number): string {
   const sessionId = generateSessionId()
 
   // Resolve claude binary once
@@ -632,6 +703,7 @@ function startSession(options: ClaudeSessionOptions, ownerWebContentsId: number)
     process: proc,
     readline: rl,
     sessionId,
+    conversationId: options.conversationId,
     ownerWebContentsId,
     didEmitResult: false,
     runtimeTimeout: null,
@@ -746,6 +818,18 @@ function startSession(options: ClaudeSessionOptions, ownerWebContentsId: number)
   return sessionId
 }
 
+async function startSession(options: ClaudeSessionOptions, ownerWebContentsId: number): Promise<string> {
+  const conversationId = options.conversationId
+  if (!conversationId) {
+    return startSessionInternal(options, ownerWebContentsId)
+  }
+
+  return withConversationStartLock(conversationId, async () => {
+    await waitForConversationSessionToExit(conversationId)
+    return startSessionInternal(options, ownerWebContentsId)
+  })
+}
+
 function stopSession(sessionId: string): void {
   const session = activeSessions.get(sessionId)
   if (!session) return
@@ -826,7 +910,7 @@ export function setupClaudeSessionHandlers(_mainWindow: BrowserWindow): void {
   if (handlersRegistered) return
   handlersRegistered = true
 
-  ipcMain.handle('claude:start', (event, options: unknown) => {
+  ipcMain.handle('claude:start', async (event, options: unknown) => {
     assertAppNotShuttingDown('claude:start')
     // Validate input shape
     if (!options || typeof options !== 'object') {
@@ -852,7 +936,7 @@ export function setupClaudeSessionHandlers(_mainWindow: BrowserWindow): void {
       workingDirectory: typeof opts.workingDirectory === 'string' ? opts.workingDirectory : undefined,
       dangerouslySkipPermissions: opts.dangerouslySkipPermissions === true,
     }
-    const sessionId = startSession(validated, event.sender.id)
+    const sessionId = await startSession(validated, event.sender.id)
     return { sessionId }
   })
 
