@@ -44,9 +44,10 @@
       "@hono/node-server": "1.19.10",
       "express-rate-limit": "8.3.0",
       "hono": "4.12.4",
-      "tar": "7.5.10",
+      "tar": ">=7.5.11",
       "minimatch": ">=10.2.3",
-      "rollup": ">=4.59.0"
+      "rollup": ">=4.59.0",
+      "flatted": ">=3.4.2"
     }
   },
   "dependencies": {
@@ -97,8 +98,13 @@
     "appId": "com.webrenew.agent-observer",
     "productName": "Agent Observer",
     "artifactName": "${name}-${version}-${arch}.${ext}",
+    "afterSign": "scripts/notarize.cjs",
     "mac": {
-      "identity": "-",
+      "identity": "Webrenew LLC (6M8Q4L7AB2)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.plist",
       "category": "public.app-category.developer-tools",
       "icon": "resources/icon.icns",
       "target": [
