@@ -106,13 +106,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Import signing certificate
-        if: env.CSC_LINK != ''
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        run: echo "Certificate imported via electron-builder CSC_LINK"
-
       - name: Build DMG installer
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
