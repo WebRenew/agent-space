@@ -1,6 +1,6 @@
 {
   "name": "agent-observer",
-  "version": "1.2.9",
+  "version": "1.2.10",
   "description": "Agent Office — 3D observability for AI agents",
   "main": "./out/main/index.js",
   "scripts": {
