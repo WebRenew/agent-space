@@ -20,14 +20,15 @@ export function HUD() {
       {/* Agent detail card — bottom-left when an agent is selected */}
       <AgentCard />
 
-      {/* Right panel stack — scrollable at small heights */}
+      {/* Right panel stack — below the StatsBar, scrollable at small heights */}
       <div
-        className="absolute top-4 right-4 pointer-events-auto"
+        className="absolute right-4 pointer-events-auto"
         style={{
+          top: 48,
           display: 'flex',
           flexDirection: 'column',
           gap: 10,
-          maxHeight: 'calc(100% - 56px)',
+          maxHeight: 'calc(100% - 64px)',
           overflowY: 'auto',
           overflowX: 'hidden',
           scrollbarWidth: 'thin',
@@ -45,7 +46,7 @@ export function HUD() {
         {digestOpen ? (
           <div
             style={{
-              maxHeight: 'calc(100% - 56px)',
+              maxHeight: 'calc(100vh - 80px)',
               overflowY: 'auto',
               scrollbarWidth: 'thin',
               scrollbarColor: 'rgba(89,86,83,0.3) transparent',
