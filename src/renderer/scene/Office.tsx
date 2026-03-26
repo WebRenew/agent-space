@@ -9,7 +9,7 @@ import { useAgentStore } from '../store/agents'
 import { useWorkspaceStore } from '../store/workspace'
 import { useWorkspaceIntelligenceStore } from '../store/workspaceIntelligence'
 import { useRunHistoryStore } from '../store/runHistory'
-import { deriveDailyDigest, filterAgentsForOfficeFocus } from '../lib/soloDevCockpit'
+import { filterAgentsForOfficeFocus } from '../lib/soloDevCockpit'
 import { OfficeSignals } from './OfficeSignals'
 import { PizzaParty } from './effects/PizzaParty'
 
@@ -188,10 +188,6 @@ export function Office() {
     : Math.min(1, (activeSnapshot?.keyFiles.length ?? 0) / 8)
   const contextFiles = latestReward?.contextFiles ?? activeSnapshot?.keyFiles.length ?? 0
   const dirtyFiles = activeSnapshot?.gitDirtyFiles ?? 0
-  const dailyDigest = useMemo(
-    () => deriveDailyDigest(runs, { workspaceDirectory: activeWorkspaceDirectory }),
-    [activeWorkspaceDirectory, runs]
-  )
   const latestRunStatus = useMemo(() => {
     const candidate = runs.find((run) => {
       if (!activeWorkspaceDirectory) return true
@@ -427,10 +423,6 @@ export function Office() {
         successRate={successRate}
         contextFiles={contextFiles}
         dirtyFiles={dirtyFiles}
-        focusMode={officeFocusMode}
-        activeAgents={deskAgents.length}
-        failedRunsToday={dailyDigest.failedRuns}
-        changedFilesToday={dailyDigest.topChangedFiles.length}
         latestRunStatus={latestRunStatus}
       />
 
