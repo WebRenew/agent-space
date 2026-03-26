@@ -40,19 +40,16 @@ export function HUD() {
       {/* Bottom-left operator digest — offset right when AgentCard is visible */}
       <div
         className="absolute bottom-4 pointer-events-auto"
-        style={{ left: hasSelectedAgent ? 332 : 16 }}
+        style={{
+          left: hasSelectedAgent ? 332 : 16,
+          maxHeight: 'calc(100% - 56px)',
+          overflowY: 'auto',
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'rgba(89,86,83,0.3) transparent',
+        }}
       >
         {digestOpen ? (
-          <div
-            style={{
-              maxHeight: 'calc(100% - 56px)',
-              overflowY: 'auto',
-              scrollbarWidth: 'thin',
-              scrollbarColor: 'rgba(89,86,83,0.3) transparent',
-            }}
-          >
-            <SoloOperatorPanel onClose={() => setDigestOpen(false)} />
-          </div>
+          <SoloOperatorPanel onClose={() => setDigestOpen(false)} />
         ) : (
           <button
             type="button"
