@@ -4,9 +4,11 @@ import { AgentCard } from './AgentCard'
 import { ToastStack } from './Toast'
 import { CelebrationDeck } from './CelebrationDeck'
 import { SoloOperatorPanel } from './SoloOperatorPanel'
+import { useAgentStore } from '../store/agents'
 
 export function HUD() {
   const [digestOpen, setDigestOpen] = useState(true)
+  const hasSelectedAgent = useAgentStore((s) => s.selectedAgentId !== null)
 
   return (
     <div className="absolute inset-0 pointer-events-none z-10">
@@ -15,7 +17,7 @@ export function HUD() {
         <StatsBar />
       </div>
 
-      {/* Agent detail card */}
+      {/* Agent detail card — bottom-left when an agent is selected */}
       <AgentCard />
 
       {/* Right panel stack — scrollable at small heights */}
@@ -35,12 +37,15 @@ export function HUD() {
         <CelebrationDeck />
       </div>
 
-      {/* Bottom-left operator digest */}
-      <div className="absolute bottom-4 left-4 pointer-events-auto">
+      {/* Bottom-left operator digest — offset right when AgentCard is visible */}
+      <div
+        className="absolute bottom-4 pointer-events-auto"
+        style={{ left: hasSelectedAgent ? 332 : 16 }}
+      >
         {digestOpen ? (
           <div
             style={{
-              maxHeight: 'calc(100vh - 56px)',
+              maxHeight: 'calc(100% - 56px)',
               overflowY: 'auto',
               scrollbarWidth: 'thin',
               scrollbarColor: 'rgba(89,86,83,0.3) transparent',
