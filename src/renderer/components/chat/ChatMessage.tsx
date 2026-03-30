@@ -3,6 +3,25 @@ import type { ChatMessage as ChatMessageType } from '../../types'
 
 interface Props {
   message: ChatMessageType
+  onReauthenticate?: () => void
+}
+
+const AUTH_ERROR_PATTERNS = [
+  /not authenticated/i,
+  /authentication (?:required|failed|error)/i,
+  /unauthorized/i,
+  /expired (?:token|session|credentials?)/i,
+  /oauth.*(?:error|failed|expired)/i,
+  /please (?:log in|login|sign in|authenticate)/i,
+  /api key.*(?:invalid|expired|missing|required)/i,
+  /invalid.*(?:api key|token|credentials?)/i,
+  /session.*expired/i,
+  /login.*required/i,
+  /could not authenticate/i,
+] as const
+
+function isAuthError(content: string): boolean {
+  return AUTH_ERROR_PATTERNS.some((p) => p.test(content))
 }
 
 function formatTime(ts: number): string {
@@ -328,7 +347,7 @@ function AssistantContent({ text }: { text: string }) {
   return <>{elements}</>
 }
 
-export function ChatMessageBubble({ message }: Props) {
+export function ChatMessageBubble({ message, onReauthenticate }: Props) {
   // Tool calls and results get a task card
   if (message.role === 'tool' || (message.role === 'assistant' && message.toolName)) {
     return (
@@ -362,6 +381,7 @@ export function ChatMessageBubble({ message }: Props) {
 
   // Error messages
   if (message.role === 'error') {
+    const showReauth = onReauthenticate && isAuthError(message.content)
     return (
       <div style={{ padding: '4px 0' }}>
         <div
@@ -375,6 +395,28 @@ export function ChatMessageBubble({ message }: Props) {
           }}
         >
           {message.content}
+          {showReauth && (
+            <button
+              onClick={onReauthenticate}
+              style={{
+                marginTop: 8,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                background: 'rgba(84, 140, 90, 0.15)',
+                border: '1px solid rgba(84, 140, 90, 0.4)',
+                borderRadius: 4,
+                color: '#548C5A',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              Re-authenticate Claude
+            </button>
+          )}
         </div>
       </div>
     )
