@@ -14,11 +14,8 @@ import { calculateTotalCost } from '../../lib/costEngine'
 import { logRendererEvent } from '../../lib/diagnostics'
 import { resolveClaudeProfile } from '../../lib/claudeProfile'
 import {
-  buildAutomationDraft,
-  buildForkPrompt,
   extractChangedFilesFromMessages,
   extractLastErrorFromMessages,
-  findLastResumableRun,
   findStarterJobTemplate,
 } from '../../lib/soloDevCockpit'
 import { useRunHistoryStore } from '../../store/runHistory'
@@ -42,10 +39,7 @@ import {
   routeClaudeEvent,
   type SessionStatus,
 } from './claudeEventHandlers'
-import { WorkspaceHome } from './WorkspaceHome'
 import type {
-  BuiltInAutomationId,
-  RunRecord,
   StarterJobId,
 } from '../../../shared/run-history'
 
@@ -223,6 +217,9 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
   const getNextDeskIndex = useAgentStore((s) => s.getNextDeskIndex)
   const addEvent = useAgentStore((s) => s.addEvent)
   const addToast = useAgentStore((s) => s.addToast)
+  const addTerminal = useAgentStore((s) => s.addTerminal)
+  const removeTerminal = useAgentStore((s) => s.removeTerminal)
+  const setActiveTerminal = useAgentStore((s) => s.setActiveTerminal)
   const updateChatSession = useAgentStore((s) => s.updateChatSession)
   const chatSession = useAgentStore(
     (s) => s.chatSessions.find((session) => session.id === chatSessionId) ?? null
@@ -234,7 +231,6 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
 
   const workspaceRoot = useWorkspaceStore((s) => s.rootPath)
   const recentFolders = useWorkspaceStore((s) => s.recentFolders)
-  const openWorkspaceFolder = useWorkspaceStore((s) => s.openFolder)
   const scopes = useSettingsStore((s) => s.settings.scopes)
   const claudeProfilesConfig = useSettingsStore((s) => s.settings.claudeProfiles)
   const soundsEnabled = useSettingsStore((s) => s.settings.soundsEnabled)
@@ -247,12 +243,10 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
   const addReward = useWorkspaceIntelligenceStore((s) => s.addReward)
   const rewards = useWorkspaceIntelligenceStore((s) => s.rewards)
   const latestContextForChat = useWorkspaceIntelligenceStore((s) => s.latestContextByChat[chatSessionId] ?? null)
-  const runs = useRunHistoryStore((s) => s.runs)
   const pendingStarterLaunch = useRunHistoryStore((s) => s.pendingStarterLaunch)
   const consumeStarterLaunch = useRunHistoryStore((s) => s.consumeStarterLaunch)
   const markStarterJobSuccess = useRunHistoryStore((s) => s.markStarterJobSuccess)
   const setLastResumableRunId = useRunHistoryStore((s) => s.setLastResumableRunId)
-  const lastSuccessfulStarterJobId = useRunHistoryStore((s) => s.lastSuccessfulStarterJobId)
   const [showRecentMenu, setShowRecentMenu] = useState(false)
   const recentMenuRef = useRef<HTMLDivElement>(null)
 
@@ -300,16 +294,6 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
   const isDirectoryCustom = chatSession ? chatSession.directoryMode === 'custom' : false
   const hasStartedConversation = Boolean(chatSession?.agentId)
   const isRunActive = status === 'running' || Boolean(claudeSessionId)
-  const recentRuns = useMemo(() => {
-    const directory = workingDir ?? workspaceRoot ?? null
-    return runs.filter((run) => {
-      if (!directory) return true
-      return run.workspaceDirectory === directory
-    })
-  }, [runs, workingDir, workspaceRoot])
-  const lastResumableRun = useMemo(() => {
-    return findLastResumableRun(recentRuns, workingDir ?? workspaceRoot ?? null)
-  }, [recentRuns, workingDir, workspaceRoot])
   const activeClaudeProfile = useMemo(() => {
     return resolveClaudeProfile(claudeProfilesConfig, workingDir ?? null)
   }, [claudeProfilesConfig, workingDir])
@@ -1267,76 +1251,6 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
     )
   }, [handleClaudePromptSend, resolveEffectiveWorkingDir])
 
-  const handleResumeRun = useCallback(async (run: RunRecord) => {
-    const effectiveWorkingDir = run.workspaceDirectory ?? await resolveEffectiveWorkingDir()
-    if (!effectiveWorkingDir) return
-    const conversationId = run.conversationId ?? chatSession?.claudeConversationId ?? createConversationId()
-    updateChatSession(chatSessionId, {
-      claudeConversationId: conversationId,
-      workingDirectory: effectiveWorkingDir,
-      directoryMode: effectiveWorkingDir === workspaceRoot ? 'workspace' : 'custom',
-    })
-    await handleClaudePromptSend(
-      'Resume the previous conversation from the current state. Restate progress, blockers, and the next best action, then continue the work if it is safe to do so.',
-      effectiveWorkingDir,
-      undefined,
-      undefined,
-      {
-        title: `Resume: ${run.title}`,
-        conversationIdOverride: conversationId,
-      }
-    )
-  }, [chatSession?.claudeConversationId, chatSessionId, handleClaudePromptSend, resolveEffectiveWorkingDir, updateChatSession, workspaceRoot])
-
-  const handleForkRun = useCallback(async (run: RunRecord) => {
-    const effectiveWorkingDir = run.workspaceDirectory ?? await resolveEffectiveWorkingDir()
-    if (!effectiveWorkingDir) return
-    const nextConversationId = createConversationId()
-    updateChatSession(chatSessionId, {
-      claudeConversationId: nextConversationId,
-      workingDirectory: effectiveWorkingDir,
-      directoryMode: effectiveWorkingDir === workspaceRoot ? 'workspace' : 'custom',
-    })
-    await handleClaudePromptSend(
-      buildForkPrompt(run),
-      effectiveWorkingDir,
-      undefined,
-      undefined,
-      {
-        title: `Fork: ${run.title}`,
-        forkedFromRunId: run.id,
-        conversationIdOverride: nextConversationId,
-      }
-    )
-  }, [chatSessionId, handleClaudePromptSend, resolveEffectiveWorkingDir, updateChatSession, workspaceRoot])
-
-  const handleInstallAutomation = useCallback(async (automationId: BuiltInAutomationId) => {
-    const effectiveWorkingDir = await resolveEffectiveWorkingDir()
-    if (!effectiveWorkingDir) return
-
-    try {
-      const draft = buildAutomationDraft(automationId, effectiveWorkingDir, yoloMode)
-      const existingTasks = await window.electronAPI.scheduler.list()
-      const existing = existingTasks.find((task) =>
-        task.name === draft.name && task.workingDirectory === effectiveWorkingDir
-      )
-      await window.electronAPI.scheduler.upsert({
-        ...draft,
-        id: existing?.id,
-      })
-      addToast({
-        type: 'success',
-        message: `${draft.name} installed for ${effectiveWorkingDir.split('/').pop() ?? effectiveWorkingDir}.`,
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      addToast({
-        type: 'error',
-        message: `Failed to install automation: ${message}`,
-      })
-    }
-  }, [addToast, resolveEffectiveWorkingDir, yoloMode])
-
   useEffect(() => {
     if (!pendingStarterLaunch || messages.length > 0 || isRunActive) return
     consumeStarterLaunch(pendingStarterLaunch.jobId)
@@ -1364,6 +1278,42 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
     runModelBaselineRef.current = null
     runStartedAtRef.current = null
   }, [claudeSessionId, clearSubagentsForParent, finalizeRunReward, setActiveClaudeSession, updateAgent])
+
+  const handleReauthenticate = useCallback(async () => {
+    try {
+      const { id, cwd } = await window.electronAPI.terminal.create({ cols: 80, rows: 24 })
+      const { scopes } = useSettingsStore.getState().settings
+      const matched = matchScope(cwd, scopes)
+
+      addTerminal({
+        id,
+        label: 'Auth',
+        isClaudeRunning: false,
+        scopeId: matched?.id ?? null,
+        cwd,
+      })
+      setActiveTerminal(id)
+
+      const unsub = window.electronAPI.terminal.onExit((exitId) => {
+        if (exitId === id) {
+          removeAgent(id)
+          removeTerminal(id)
+          unsub()
+        }
+      })
+
+      // Auto-run claude after terminal initializes
+      setTimeout(() => {
+        window.electronAPI.terminal.write(id, 'claude\n')
+      }, 100)
+
+      window.dispatchEvent(new CustomEvent('agent:focusTerminal', { detail: { terminalId: id } }))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[ChatPanel] Failed to create auth terminal: ${msg}`)
+      addToast({ type: 'error', message: 'Failed to open terminal for re-authentication' })
+    }
+  }, [addTerminal, removeTerminal, removeAgent, setActiveTerminal, addToast])
 
   const isRunning = isRunActive
 
@@ -1687,35 +1637,17 @@ export function ChatPanel({ chatSessionId }: ChatPanelProps) {
 
       {/* Messages */}
       <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px', minHeight: 0 }}>
-        {messages.length === 0 ? (
-          <WorkspaceHome
-            workingDirectory={workingDir ?? null}
-            workspaceRoot={workspaceRoot ?? null}
-            recentFolders={recentFolders}
-            recentRuns={recentRuns}
-            lastResumableRun={lastResumableRun}
-            lastSuccessfulStarterJobId={lastSuccessfulStarterJobId}
-            onChooseFolder={() => { void handleChangeWorkingDir() }}
-            onOpenRecentFolder={(path) => {
-              openWorkspaceFolder(path)
-              handleSelectRecentDirectory(path)
-            }}
-            onLaunchStarterJob={(jobId) => { void handleLaunchStarterJob(jobId) }}
-            onResumeRun={(run) => { void handleResumeRun(run) }}
-            onForkRun={(run) => { void handleForkRun(run) }}
-            onInstallAutomation={(automationId) => { void handleInstallAutomation(automationId) }}
+        {messages.map((msg) => (
+          <ChatMessageBubble
+            key={msg.id}
+            message={msg}
+            onReauthenticate={msg.role === 'error' ? handleReauthenticate : undefined}
           />
-        ) : (
-          <>
-            {messages.map((msg) => (
-              <ChatMessageBubble key={msg.id} message={msg} />
-            ))}
-            {isRunning && messages[messages.length - 1]?.role !== 'thinking' && (
-              <TypingIndicator />
-            )}
-            <div ref={chatEndRef} />
-          </>
+        ))}
+        {isRunning && messages[messages.length - 1]?.role !== 'thinking' && (
+          <TypingIndicator />
         )}
+        <div ref={chatEndRef} />
       </div>
 
       {/* Draggable divider */}
