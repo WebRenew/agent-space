@@ -14,7 +14,7 @@ const AUTH_ERROR_PATTERNS = [
   /oauth.*(?:error|failed|expired)/i,
   /please (?:log in|login|sign in|authenticate)/i,
   /api key.*(?:invalid|expired|missing|required)/i,
-  /invalid.*(?:api key|token|credentials?)/i,
+  /invalid (?:api key|credentials?|access token|auth(?:entication)? token|bearer token)/i,
   /session.*expired/i,
   /login.*required/i,
   /could not authenticate/i,
